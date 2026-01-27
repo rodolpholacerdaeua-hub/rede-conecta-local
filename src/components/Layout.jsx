@@ -6,8 +6,8 @@ const SidebarItem = ({ icon: Icon, label, path, active, onClick }) => (
     <button
         onClick={onClick}
         className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 ${active
-                ? 'bg-blue-600 text-white shadow-lg'
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+            ? 'bg-blue-600 text-white shadow-lg'
+            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
             }`}
     >
         <Icon className="w-5 h-5" />
@@ -26,8 +26,10 @@ const Layout = () => {
     const menuItems = [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
         { icon: Monitor, label: 'Telas (Players)', path: '/players' },
-        { icon: Image, label: 'Biblioteca de Mídia', path: '/media' },
+        { icon: Image, label: 'Biblioteca', path: '/media' },
+        { icon: ListVideo, label: 'Campanhas', path: '/campaigns' },
         { icon: ListVideo, label: 'Playlists', path: '/playlists' },
+        { icon: Users, label: 'Financeiro', path: '/finance' },
         { icon: Users, label: 'Usuários', path: '/users' },
         { icon: Settings, label: 'Configurações', path: '/settings' },
     ];

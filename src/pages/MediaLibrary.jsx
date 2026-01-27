@@ -11,6 +11,11 @@ const MediaCard = ({ file, onDelete }) => (
             style={{ backgroundImage: file.type === 'image' ? `url(${file.url})` : 'none' }}>
             {file.type === 'video' && <FileVideo className="w-12 h-12 text-slate-400" />}
             {file.type === 'image' && !file.url && <ImageIcon className="w-12 h-12 text-slate-400" />}
+
+            {/* Orientation Badge */}
+            <div className="absolute top-2 left-2 bg-slate-900/60 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+                {file.orientation === 'vertical' ? 'Vertical (9:16)' : 'Horizontal (16:9)'}
+            </div>
         </div>
 
         {/* Info */}
@@ -40,6 +45,7 @@ const MediaLibrary = () => {
     const [files, setFiles] = useState([]);
     const [uploading, setUploading] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [orientation, setOrientation] = useState('horizontal');
 
     // Buscar arquivos do Firestore em Tempo Real
     useEffect(() => {
@@ -97,6 +103,7 @@ const MediaLibrary = () => {
                         name: file.name,
                         url: downloadURL,
                         type: file.type.startsWith('image/') ? 'image' : 'video',
+                        orientation: orientation,
                         size: file.size,
                         storagePath: uploadTask.snapshot.ref.fullPath,
                         createdAt: new Date()
@@ -133,6 +140,21 @@ const MediaLibrary = () => {
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800">Biblioteca de Mídia</h2>
                     <p className="text-slate-500">Gerencie seus vídeos e imagens.</p>
+                </div>
+
+                <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
+                    <button
+                        onClick={() => setOrientation('horizontal')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${orientation === 'horizontal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        HORIZONTAL
+                    </button>
+                    <button
+                        onClick={() => setOrientation('vertical')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${orientation === 'vertical' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        VERTICAL
+                    </button>
                 </div>
 
                 <label className={`flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg transition-colors font-medium cursor-pointer ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
