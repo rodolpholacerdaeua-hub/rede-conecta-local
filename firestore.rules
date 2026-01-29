@@ -1,0 +1,169 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ========================================
+    // HELPER FUNCTIONS
+    // ========================================
+    
+    // Verifica se o usuário está autenticado
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Verifica se o usuário é admin
+    // Evitamos recursão aqui usando exists() de forma cuidadosa se necessário, 
+    // mas o ideal é que isAdmin() seja usado apenas em coleções diferentes de 'users'
+    // ou com condições que impeçam o loop.
+    function isAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // Verifica se o usuário é o dono do recurso
+    function isOwner(ownerId) {
+      return isAuthenticated() && request.auth.uid == ownerId;
+    }
+    
+    // ========================================
+    // COLEÇÃO: users
+    // ========================================
+    match /users/{userId} {
+      // Leitura: 
+      // 1. O próprio usuário pode ler seu documento
+      // 2. Admin pode ler documentos de outros (get() no próprio documento do admin não é circular)
+      allow read: if isOwner(userId) || (isAuthenticated() && request.auth.uid != userId && isAdmin());
+      
+      // Criação: permitida se for o próprio documento
+      allow create: if isOwner(userId);
+      
+      // Atualização: 
+      // 1. O próprio usuário pode mudar apenas displayName
+      // Escrita: Apenas dono (pode mudar displayName e campos de plano) ou admin
+      allow update: if isAuthenticated() && (userId == request.auth.uid 
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'plan', 'planExpiresAt', 'autoRenew', 'planStartedAt']))
+                    || isAdmin();
+      
+      // Deleção: apenas admin em documentos de outros
+      allow delete: if isAuthenticated() && request.auth.uid != userId && isAdmin();
+    }
+    
+    // ========================================
+    // COLEÇÃO: campaigns
+    // ========================================
+    match /campaigns/{campaignId} {
+      // Leitura: dono ou admin
+      allow read: if isOwner(resource.data.ownerId) || isAdmin();
+      
+      // Criação: qualquer usuário autenticado, mas ownerId deve ser o próprio uid
+      allow create: if isAuthenticated() && 
+                      request.resource.data.ownerId == request.auth.uid;
+      
+      // Atualização: dono pode atualizar (exceto ownerId), admin pode tudo
+      allow update: if (isOwner(resource.data.ownerId) && 
+                        request.resource.data.ownerId == resource.data.ownerId) ||
+                       isAdmin();
+      
+      // Deleção: apenas admin
+      allow delete: if isAdmin();
+    }
+    
+    // ========================================
+    // COLEÇÃO: media
+    // ========================================
+    match /media/{mediaId} {
+      // Leitura: dono ou admin
+      allow read: if isOwner(resource.data.ownerId) || isAdmin();
+      
+      // Criação: qualquer usuário autenticado, mas ownerId deve ser o próprio uid
+      allow create: if isAuthenticated() && 
+                      request.resource.data.ownerId == request.auth.uid;
+      
+      // Atualização: dono ou admin (mas ownerId não pode mudar)
+      allow update: if (isOwner(resource.data.ownerId) || isAdmin()) &&
+                       request.resource.data.ownerId == resource.data.ownerId;
+      
+      // Deleção: dono ou admin
+      allow delete: if isOwner(resource.data.ownerId) || isAdmin();
+    }
+    
+    // ========================================
+    // COLEÇÃO: terminals
+    // ========================================
+    match /terminals/{terminalId} {
+      // Leitura: todos os usuários autenticados (necessário para seleção em campanhas)
+      allow read: if isAuthenticated();
+      
+      // Criação, Atualização, Deleção: apenas admin
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // ========================================
+    // COLEÇÃO: transactions
+    // ========================================
+    match /transactions/{transactionId} {
+      // Leitura: dono da transação ou admin
+      allow read: if isOwner(resource.data.uid) || isAdmin();
+      
+      // Criação: apenas admin (transações são criadas pelo sistema)
+      allow create: if isAdmin();
+      
+      // Atualização e Deleção: apenas admin
+      allow update, delete: if isAdmin();
+    }
+    
+    // ========================================
+    // COLEÇÃO: generation_requests
+    // ========================================
+    match /generation_requests/{requestId} {
+      // Leitura: dono do pedido ou admin
+      allow read: if isOwner(resource.data.ownerId) || isAdmin();
+      
+      // Criação: qualquer usuário autenticado, mas ownerId deve ser o próprio uid
+      allow create: if isAuthenticated() && 
+                      request.resource.data.ownerId == request.auth.uid;
+      
+      // Atualização: dono (para o simulador mock) ou admin
+      allow update: if isOwner(resource.data.ownerId) || isAdmin();
+      
+      // Deleção: dono ou admin
+      allow delete: if isOwner(resource.data.ownerId) || isAdmin();
+    }
+    
+    // ========================================
+    // COLEÇÃO: playlists
+    // ========================================
+    match /playlists/{playlistId} {
+      // Leitura: Qualquer usuário autenticado pode ver (necessário para terminais)
+      allow read: if isAuthenticated();
+      
+      // Escrita: Apenas admin
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ========================================
+    // COLEÇÃO: billing
+    // ========================================
+    match /billing/{billId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ========================================
+    // COLEÇÃO: terminal_groups
+    // ========================================
+    match /terminal_groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ========================================
+    // REGRA PADRÃO: NEGAR TUDO
+    // ========================================
+    // Qualquer coleção não especificada acima é bloqueada por padrão
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

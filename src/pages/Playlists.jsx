@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Plus, Clock, GripVertical, Trash2, Save, Check, FileVideo, Monitor, Image as ImageIcon } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
+import { useAuth } from '../contexts/AuthContext';
 import {
     DndContext,
     closestCenter,
@@ -20,26 +21,41 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 const ItemSelector = ({ onSelect }) => {
+    const { currentUser, userData } = useAuth();
     const [mediaFiles, setMediaFiles] = useState([]);
     const [campaigns, setCampaigns] = useState([]);
     const [tab, setTab] = useState('campaigns'); // Default to campaigns
 
     useEffect(() => {
-        const qM = query(collection(db, "media"), orderBy("createdAt", "desc"));
+        if (!currentUser) return;
+
+        // Mídias: Admin vê tudo, Cliente vê as suas
+        const qM = userData?.role === 'admin'
+            ? query(collection(db, "media"), orderBy("createdAt", "desc"))
+            : query(collection(db, "media"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"));
+
         const unsubscribeM = onSnapshot(qM, (snapshot) => {
             setMediaFiles(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (error) => {
+            console.error("Playlists MediaSelector: Erro ao carregar mídias:", error);
         });
 
-        const qC = query(collection(db, "campaigns"), orderBy("createdAt", "desc"));
+        // Campanhas: Admin vê tudo, Cliente vê as suas
+        const qC = userData?.role === 'admin'
+            ? query(collection(db, "campaigns"), orderBy("createdAt", "desc"))
+            : query(collection(db, "campaigns"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"));
+
         const unsubscribeC = onSnapshot(qC, (snapshot) => {
             setCampaigns(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (error) => {
+            console.error("Playlists CampaignSelector: Erro ao carregar campanhas:", error);
         });
 
         return () => {
             unsubscribeM();
             unsubscribeC();
         };
-    }, []);
+    }, [currentUser?.uid, userData?.role]);
 
     return (
         <div className="bg-white p-4 rounded-xl border border-slate-200 h-full overflow-y-auto max-h-[calc(100vh-10rem)]">
@@ -62,31 +78,55 @@ const ItemSelector = ({ onSelect }) => {
 
             <div className="space-y-2">
                 {tab === 'media' ? (
-                    mediaFiles.map(file => (
-                        <div
-                            key={file.id}
-                            onClick={() => onSelect({ ...file, itemType: 'media' })}
-                            className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer border border-transparent hover:border-slate-200 transition-all select-none"
-                        >
-                            <div className="w-10 h-10 bg-slate-100 rounded flex items-center justify-center flex-shrink-0 overflow-hidden relative">
-                                {file.type === 'image' ? (
-                                    <img src={file.url} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                    <FileVideo className="w-5 h-5 text-slate-400" />
-                                )}
-                                <div className="absolute bottom-0 right-0 bg-blue-600 text-white text-[8px] px-1 rounded-tl font-bold uppercase">
-                                    {file.orientation === 'vertical' ? 'V' : 'H'}
+                    <>
+                        {/* Mídias Globais */}
+                        {mediaFiles.map(file => (
+                            <div
+                                key={file.id}
+                                onClick={() => onSelect({ ...file, itemType: 'media' })}
+                                className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer border border-transparent hover:border-slate-200 transition-all select-none"
+                            >
+                                <div className="w-10 h-10 bg-slate-100 rounded flex items-center justify-center flex-shrink-0 overflow-hidden relative">
+                                    {file.type === 'image' ? (
+                                        <img src={file.url} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <FileVideo className="w-5 h-5 text-slate-400" />
+                                    )}
+                                    <div className="absolute bottom-0 right-0 bg-blue-600 text-white text-[8px] px-1 rounded-tl font-bold uppercase">
+                                        {file.orientation === 'vertical' ? 'V' : 'H'}
+                                    </div>
                                 </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
+                                    <p className="text-[10px] text-slate-400 uppercase tracking-tighter">Arquivo • {file.type === 'image' ? 'Imagem' : 'Vídeo'}</p>
+                                </div>
+                                <Plus className="w-4 h-4 text-blue-500" />
                             </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
-                                <p className="text-[10px] text-slate-400 uppercase tracking-tighter">Global • {file.type === 'image' ? 'Imagem' : 'Vídeo'}</p>
+                        ))}
+                        {/* Campanhas Globais (Aparecem aqui também) */}
+                        {campaigns.filter(c => c.isGlobal).map(camp => (
+                            <div
+                                key={camp.id}
+                                onClick={() => onSelect({ ...camp, itemType: 'campaign' })}
+                                className="flex items-center space-x-3 p-2 hover:bg-emerald-50 rounded-lg cursor-pointer border border-transparent hover:border-emerald-200 transition-all select-none"
+                            >
+                                <div className="w-10 h-10 bg-emerald-100 rounded flex items-center justify-center flex-shrink-0 relative overflow-hidden">
+                                    <Globe className="w-5 h-5 text-emerald-600" />
+                                    <div className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[8px] px-1 rounded-tl font-bold uppercase">
+                                        GLOBAL
+                                    </div>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-black text-slate-800 truncate">{camp.name}</p>
+                                    <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-tighter">Campanha de Rede</p>
+                                </div>
+                                <Plus className="w-4 h-4 text-emerald-500" />
                             </div>
-                            <Plus className="w-4 h-4 text-blue-500" />
-                        </div>
-                    ))
+                        ))}
+                    </>
                 ) : (
-                    campaigns.map(camp => (
+                    /* Campanhas Locais (Apenas as NÃO globais) */
+                    campaigns.filter(c => !c.isGlobal).map(camp => (
                         <div
                             key={camp.id}
                             onClick={() => onSelect({ ...camp, itemType: 'campaign' })}
@@ -95,22 +135,22 @@ const ItemSelector = ({ onSelect }) => {
                             <div className="w-10 h-10 bg-indigo-100 rounded flex items-center justify-center flex-shrink-0 relative overflow-hidden">
                                 <Monitor className="w-5 h-5 text-indigo-500" />
                                 <div className="absolute bottom-0 right-0 bg-indigo-600 text-white text-[8px] px-1 rounded-tl font-bold uppercase">
-                                    AD
+                                    LOCAL
                                 </div>
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-slate-800 truncate">{camp.name}</p>
-                                <p className="text-[10px] text-slate-400 uppercase tracking-tighter">Campanha PRO</p>
+                                <p className="text-[10px] text-slate-400 uppercase tracking-tighter">Anúncio Específico</p>
                             </div>
                             <Plus className="w-4 h-4 text-indigo-500" />
                         </div>
                     ))
                 )}
-                {tab === 'media' && mediaFiles.length === 0 && (
-                    <p className="text-sm text-slate-400 text-center py-4">Nenhuma mídia encontrada.</p>
+                {tab === 'media' && mediaFiles.length === 0 && campaigns.filter(c => c.isGlobal).length === 0 && (
+                    <p className="text-sm text-slate-400 text-center py-4">Nenhum conteúdo global.</p>
                 )}
-                {tab === 'campaigns' && campaigns.length === 0 && (
-                    <p className="text-sm text-slate-400 text-center py-4">Nenhuma campanha encontrada.</p>
+                {tab === 'campaigns' && campaigns.filter(c => !c.isGlobal).length === 0 && (
+                    <p className="text-sm text-slate-400 text-center py-4">Nenhuma campanha local encontrada.</p>
                 )}
             </div>
         </div>
@@ -198,6 +238,7 @@ const SortableItem = ({ id, item, index, activeTab, onRemove, onDurationChange }
 };
 
 const Playlists = () => {
+    const { currentUser, userData } = useAuth();
     const [playlists, setPlaylists] = useState([]);
     const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
     const [localItems, setLocalItems] = useState([]);
@@ -218,12 +259,11 @@ const Playlists = () => {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setPlaylists(docs);
-            if (!selectedPlaylistId && docs.length > 0) {
-                // Não selecionar automaticamente para evitar troca inesperada
-            }
+        }, (error) => {
+            console.error("Playlists: Erro ao carregar playlists:", error);
         });
         return () => unsubscribe();
-    }, []);
+    }, [currentUser?.uid, userData?.role]);
 
     useEffect(() => {
         if (selectedPlaylistId) {

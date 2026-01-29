@@ -1,14 +1,67 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { canCreateTerminal, getPlanQuota } from '../utils/planHelpers';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, getDocs } from 'firebase/firestore';
-import { Monitor, Cpu, Thermometer, HardDrive, Zap, Power, Play, Plus, Search, Filter, Layers, Users } from 'lucide-react';
+import { Monitor, Cpu, Thermometer, HardDrive, Zap, Power, Play, Plus, Search, Filter, Layers, Users, Settings } from 'lucide-react';
+import GroupManagerModal from '../components/GroupManagerModal';
 
-const TerminalCard = ({ terminal, playlists, onAssignPlaylist, onToggleSleep, onUpdateField }) => {
-    const isOnline = terminal.lastSeen && (Date.now() - terminal.lastSeen.seconds * 1000 < 60000);
+const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, onUpdateField }) => {
+    const [now, setNow] = useState(new Date());
+
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 30000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const lastSeenMs = terminal.lastSeen?.seconds ? terminal.lastSeen.seconds * 1000 : (terminal.lastSeen ? new Date(terminal.lastSeen).getTime() : 0);
+    const isOnline = lastSeenMs > 0 && !isNaN(lastSeenMs) && (now.getTime() - lastSeenMs < 60000);
+
+    const getOperationalStatus = () => {
+        const mode = terminal.powerMode || 'auto';
+
+        const ensureLeadingZero = (time) => {
+            if (!time) return "00:00";
+            return time.includes(':') && time.split(':')[0].length === 1 ? `0${time}` : time;
+        };
+
+        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const open = ensureLeadingZero(terminal.openingTime || "08:00");
+        const close = ensureLeadingZero(terminal.closingTime || "22:00");
+        const isWithinTime = open <= close
+            ? (currentTime >= open && currentTime <= close)
+            : (currentTime >= open || currentTime <= close);
+
+        const activeDays = terminal.activeDays || [0, 1, 2, 3, 4, 5, 6];
+        const currentDay = now.getDay(); // 0 = Domingo
+        const isDayActive = activeDays.includes(currentDay);
+
+        const shouldBeOff = mode === 'off' || (mode === 'auto' && (!isWithinTime || !isDayActive));
+
+        // Se a intenção é estar DESLIGADO
+        if (shouldBeOff) {
+            return mode === 'off'
+                ? { label: 'FORÇADO OFF', class: 'bg-slate-800 text-white border-slate-900' }
+                : { label: 'AUTO: STANDBY', class: 'bg-amber-50 text-amber-700 border border-amber-200' };
+        }
+
+        // Se a intenção é estar LIGADO, mas o hardware ainda não cantou presença
+        if (!isOnline) {
+            return { label: 'LIGANDO...', class: 'bg-amber-500 text-white border-amber-600 animate-pulse font-black' };
+        }
+
+        // Intenção LIGADO + Hardware ON
+        return {
+            label: mode === 'on' ? 'EM OPERAÇÃO (ON)' : 'EM OPERAÇÃO (AUTO)',
+            class: 'bg-emerald-500 text-white border-emerald-600 font-bold'
+        };
+    };
+
+    const opStatus = getOperationalStatus();
 
     return (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow flex flex-col">
-            <div className={`h-1.5 w-full ${isOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
+            <div className={`h-1.5 w-full ${isOnline ? 'bg-emerald-500' : 'bg-red-500'} transition-colors duration-1000`} />
             <div className="p-5 flex-1 flex flex-col">
                 <div className="flex justify-between items-start mb-4">
                     <div className="flex-1 min-w-0 mr-2">
@@ -21,13 +74,29 @@ const TerminalCard = ({ terminal, playlists, onAssignPlaylist, onToggleSleep, on
                         </h4>
                         <div className="flex items-center space-x-1 mt-1">
                             <Users className="w-3 h-3 text-slate-400" />
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider italic">
-                                {terminal.group || 'Sem Grupo'}
-                            </span>
+                            <select
+                                value={terminal.group || 'Default'}
+                                onChange={(e) => onUpdateField(terminal.id, 'group', e.target.value)}
+                                className="text-[10px] text-slate-400 font-bold uppercase tracking-wider italic bg-transparent border-none p-0 outline-none cursor-pointer hover:text-blue-600 focus:ring-0 w-auto max-w-[120px] truncate appearance-none"
+                                title="Clique para alterar o grupo"
+                            >
+                                <option value="Default">Default</option>
+                                {availableGroups?.filter(g => g !== 'Default').map(g => (
+                                    <option key={g} value={g}>{g}</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
-                    <div className={`px-2 py-1 rounded text-[10px] font-bold flex-shrink-0 ${isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                        {terminal.sleepMode ? 'DORMINDO 🌙' : (isOnline ? 'ONLINE' : 'OFFLINE')}
+                    <div className="flex flex-col items-end gap-1.5">
+                        <div className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border shadow-sm transition-all ${opStatus.class}`}>
+                            {opStatus.label}
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                            <span className={`text-[8px] font-black uppercase tracking-widest ${isOnline ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {isOnline ? 'CONECTADO' : 'OFFLINE'}
+                            </span>
+                        </div>
                     </div>
                 </div>
 
@@ -65,6 +134,34 @@ const TerminalCard = ({ terminal, playlists, onAssignPlaylist, onToggleSleep, on
                             />
                         </div>
                     </div>
+
+                    <div className="flex justify-between items-center gap-1">
+                        {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((day, idx) => {
+                            const activeDays = terminal.activeDays || [0, 1, 2, 3, 4, 5, 6];
+                            const isActive = activeDays.includes(idx);
+
+                            const toggleDay = () => {
+                                const newDays = isActive
+                                    ? activeDays.filter(d => d !== idx)
+                                    : [...activeDays, idx].sort();
+                                onUpdateField(terminal.id, 'activeDays', newDays);
+                            };
+
+                            return (
+                                <button
+                                    key={idx}
+                                    onClick={toggleDay}
+                                    className={`flex-1 aspect-square rounded text-[9px] font-black flex items-center justify-center transition-all ${isActive
+                                            ? 'bg-indigo-600 text-white shadow-sm'
+                                            : 'bg-white text-slate-300 border border-slate-100'
+                                        }`}
+                                    title={`Alternar ${day}`}
+                                >
+                                    {day}
+                                </button>
+                            )
+                        })}
+                    </div>
                 </div>
 
                 <div className="mt-auto space-y-3">
@@ -91,13 +188,36 @@ const TerminalCard = ({ terminal, playlists, onAssignPlaylist, onToggleSleep, on
                                 {terminal.currentMedia || 'Aguardando...'}
                             </span>
                         </div>
+                        <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+                            <button
+                                onClick={() => onUpdateField(terminal.id, 'powerMode', 'on')}
+                                className={`p-1.5 rounded-lg transition-all flex-1 flex items-center justify-center ${terminal.powerMode === 'on' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400 hover:text-emerald-600'}`}
+                                title="Forçar Ligado (Manual ON)"
+                            >
+                                <Zap className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                onClick={() => onUpdateField(terminal.id, 'powerMode', 'auto')}
+                                className={`p-1.5 rounded-lg transition-all flex-1 flex items-center justify-center ${(!terminal.powerMode || terminal.powerMode === 'auto') ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-indigo-600'}`}
+                                title="Modo Automático (Segue Agenda)"
+                            >
+                                <span className="text-[9px] font-black italic">AUTO</span>
+                            </button>
+                            <button
+                                onClick={() => onUpdateField(terminal.id, 'powerMode', 'off')}
+                                className={`p-1.5 rounded-lg transition-all flex-1 flex items-center justify-center ${terminal.powerMode === 'off' ? 'bg-red-500 text-white shadow-sm' : 'text-slate-400 hover:text-red-600'}`}
+                                title="Forçar Standby (Manual OFF)"
+                            >
+                                <Power className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
                         <div className="flex items-center gap-1">
                             <button
-                                onClick={() => onToggleSleep(terminal.id, terminal.sleepMode)}
-                                className={`p-2 rounded-lg transition-colors flex-shrink-0 ${terminal.sleepMode ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'}`}
-                                title={terminal.sleepMode ? "Despertar Player" : "Forçar Deep Sleep Manual"}
+                                onClick={() => window.open(`/player/${terminal.id}`, '_blank')}
+                                className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                                title="Visualizar Reprodução em Tempo Real"
                             >
-                                <Power className="w-4 h-4" />
+                                <Monitor className="w-4 h-4" />
                             </button>
                         </div>
                     </div>
@@ -108,6 +228,7 @@ const TerminalCard = ({ terminal, playlists, onAssignPlaylist, onToggleSleep, on
 };
 
 const Players = () => {
+    const { currentUser, userData } = useAuth();
     const [terminals, setTerminals] = useState([]);
     const [playlists, setPlaylists] = useState([]);
     const [isAdding, setIsAdding] = useState(false);
@@ -118,31 +239,64 @@ const Players = () => {
     const [isBulkAssign, setIsBulkAssign] = useState(false);
     const [bulkPlaylistId, setBulkPlaylistId] = useState('');
     const [bulkGroup, setBulkGroup] = useState('');
+    const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
+    const [availableGroups, setAvailableGroups] = useState([]);
+
+    const terminalValidation = canCreateTerminal(userData, terminals.length);
 
     useEffect(() => {
-        const qT = query(collection(db, "terminals"), orderBy("lastSeen", "desc"));
-        const unsubscribeT = onSnapshot(qT, (snapshot) => {
-            setTerminals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
+        let unsubscribeT = () => { };
+        let unsubscribeP = () => { };
+        let unsubscribeG = () => { };
 
-        const qP = query(collection(db, "playlists"), orderBy("createdAt", "desc"));
-        const unsubscribeP = onSnapshot(qP, (snapshot) => {
-            setPlaylists(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
+        try {
+            const qT = query(collection(db, "terminals"), orderBy("lastSeen", "desc"));
+            unsubscribeT = onSnapshot(qT, (snapshot) => {
+                setTerminals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            }, (error) => {
+                console.error("Players: Erro ao carregar terminais:", error);
+            });
+
+            const qP = query(collection(db, "playlists"), orderBy("createdAt", "desc"));
+            unsubscribeP = onSnapshot(qP, (snapshot) => {
+                setPlaylists(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            }, (error) => {
+                console.error("Players: Erro ao carregar playlists:", error);
+            });
+
+            const qG = query(collection(db, "terminal_groups"), orderBy("name"));
+            unsubscribeG = onSnapshot(qG, (snapshot) => {
+                const structuredGroups = snapshot.docs.map(doc => doc.data().name);
+                // Mescla com grupos ad-hoc que por acaso existam nos terminais mas não na coleção (para legado)
+                // Mas a prioridade é o que está no banco estruturado. Vamos usar apenas os estruturados + 'Default' para simplificar?
+                // O usuário pediu para "incluir novas telas em grupos já existentes". Então melhor usar a fonte da verdade.
+                // Mas para não quebrar UI com grupos deletados, se um terminal tem grupo X e X não existe na collection,
+                // ele ainda aparece no filtro? Sim, pois o filtro usa 'terminals.map'
+                setAvailableGroups([...new Set(structuredGroups)]);
+            });
+
+        } catch (err) {
+            console.error("Players: Erro na inicialização:", err);
+        }
 
         return () => {
             unsubscribeT();
             unsubscribeP();
+            unsubscribeG();
         };
     }, []);
 
-    const toggleSleepMode = async (id, current) => {
+    // Função auxiliar para verificar se o player está online com segurança
+    const isPlayerOnline = (lastSeen) => {
+        if (!lastSeen) return false;
         try {
-            await updateDoc(doc(db, "terminals", id), { sleepMode: !current });
+            const lastSeenMs = lastSeen.seconds ? lastSeen.seconds * 1000 : new Date(lastSeen).getTime();
+            return !isNaN(lastSeenMs) && (Date.now() - lastSeenMs < 60000);
         } catch (e) {
-            console.error(e);
+            return false;
         }
     };
+
 
     const handleAssignPlaylist = async (terminalId, playlistId) => {
         try {
@@ -181,6 +335,15 @@ const Players = () => {
     const handleCreate = async (e) => {
         e.preventDefault();
         if (!newName) return;
+
+        // Validar Quota
+        const validation = canCreateTerminal(userData, terminals.length);
+        if (!validation.can) {
+            alert(validation.reason);
+            // Opcional: Redirecionar para planos ou abrir modal de upgrade
+            return;
+        }
+
         try {
             await addDoc(collection(db, "terminals"), {
                 name: newName,
@@ -191,14 +354,16 @@ const Players = () => {
                 status: 'online',
                 currentMedia: 'Aguardando sincronia...',
                 createdAt: new Date(),
-                sleepMode: false,
-                assignedPlaylistId: ''
+                powerMode: 'auto',
+                assignedPlaylistId: '',
+                ownerId: currentUser.uid // Importante para multi-tenant futuro
             });
             setNewName('');
             setNewGroup('');
             setIsAdding(false);
         } catch (error) {
             console.error(error);
+            alert("Erro ao criar terminal.");
         }
     };
 
@@ -218,8 +383,20 @@ const Players = () => {
                         <span>Atribuição em Massa</span>
                     </button>
                     <button
-                        onClick={() => setIsAdding(!isAdding)}
-                        className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg transition-colors font-medium shadow-md text-sm"
+                        onClick={() => {
+                            if (!isAdding && !terminalValidation.can) {
+                                alert(terminalValidation.reason);
+                                return;
+                            }
+                            setIsAdding(!isAdding);
+                        }}
+                        className={`flex items-center space-x-2 px-4 py-2.5 rounded-lg transition-colors font-medium shadow-md text-sm ${isAdding
+                            ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            : (!terminalValidation.can
+                                ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+                                : 'bg-blue-600 hover:bg-blue-700 text-white')
+                            }`}
+                        title={!isAdding && !terminalValidation.can ? terminalValidation.reason : ''}
                     >
                         <Plus className="w-4 h-4" />
                         <span>{isAdding ? 'Cancelar' : 'Novo Terminal'}</span>
@@ -314,14 +491,27 @@ const Players = () => {
                             />
                         </div>
                         <div className="flex-1 space-y-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Grupo de Telas</label>
-                            <input
-                                type="text"
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex justify-between items-center">
+                                Grupo
+                                <button
+                                    type="button"
+                                    onClick={() => setIsGroupManagerOpen(true)}
+                                    className="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                >
+                                    <Settings className="w-3 h-3" /> Gerenciar
+                                </button>
+                            </label>
+                            <select
                                 value={newGroup}
                                 onChange={(e) => setNewGroup(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Ex: Zona Norte"
-                            />
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+                            >
+                                <option value="">Selecione um grupo...</option>
+                                <option value="Default">Default</option>
+                                {availableGroups.filter(g => g !== 'Default').map(g => (
+                                    <option key={g} value={g}>{g}</option>
+                                ))}
+                            </select>
                         </div>
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Orientação</label>
@@ -335,6 +525,12 @@ const Players = () => {
                 </div>
             )}
 
+            <GroupManagerModal
+                isOpen={isGroupManagerOpen}
+                onClose={() => setIsGroupManagerOpen(false)}
+                currentTerminalGroups={[...new Set(terminals.map(t => t.group))]}
+            />
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
                 {terminals
                     .filter(t => filterGroup === 'Todos' || t.group === filterGroup)
@@ -343,8 +539,8 @@ const Players = () => {
                             key={t.id}
                             terminal={t}
                             playlists={playlists}
+                            availableGroups={availableGroups}
                             onAssignPlaylist={handleAssignPlaylist}
-                            onToggleSleep={toggleSleepMode}
                             onUpdateField={handleUpdateField}
                         />
                     ))

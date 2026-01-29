@@ -8,6 +8,9 @@ import MediaLibrary from './pages/MediaLibrary';
 import Playlists from './pages/Playlists';
 import Campaigns from './pages/Campaigns';
 import Finance from './pages/Finance';
+import Users from './pages/Users';
+import MyPlan from './pages/MyPlan';
+import Player from './pages/Player';
 import AIAgentSimulator from './components/AIAgentSimulator';
 import Layout from './components/Layout';
 
@@ -29,6 +32,7 @@ function App() {
         <AIAgentSimulator />
         <Routes>
           <Route path="/" element={<Login />} />
+          <Route path="/player/:terminalId" element={<Player />} />
 
           {/* Rotas Protegidas */}
           <Route element={
@@ -42,7 +46,8 @@ function App() {
             <Route path="/campaigns" element={<Campaigns />} />
             <Route path="/playlists" element={<Playlists />} />
             <Route path="/finance" element={<Finance />} />
-            <Route path="/users" element={<div className="p-4">Gestão de Usuários (Em breve)</div>} />
+            <Route path="/users" element={<Users />} />
+            <Route path="/my-plan" element={<MyPlan />} />
             <Route path="/settings" element={<div className="p-4">Configurações (Em breve)</div>} />
           </Route>
 

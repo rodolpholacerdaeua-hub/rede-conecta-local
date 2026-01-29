@@ -1,134 +1,217 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
-import { collection, onSnapshot, query, orderBy, limit, where } from 'firebase/firestore';
-import { Monitor, Play, AlertCircle, Clock, TrendingUp, DollarSign, CheckCircle, AlertTriangle, Activity } from 'lucide-react';
+import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
+import {
+    Monitor, CheckCircle, AlertTriangle, Play, Clock, Package,
+    Sparkles, Zap, Coins, ArrowRight, Calendar
+} from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import {
+    getPlanName, getPlanQuota,
+    getDaysUntilExpiration, calculateUsedScreens
+} from '../utils/planHelpers';
+import { useNavigate } from 'react-router-dom';
 
 const StatCard = ({ icon: Icon, label, value, color, subtext }) => (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-start space-x-4">
-        <div className={`p-3 rounded-lg ${color}`}>
-            <Icon className="w-6 h-6 text-white" />
+    <div className="bg-white rounded-3xl p-6 border border-slate-100 premium-shadow group hover:border-indigo-200 transition-all duration-300">
+        <div className="flex justify-between items-start mb-4">
+            <div className={`p-3 rounded-2xl ${color} text-white shadow-lg`}>
+                <Icon className="w-6 h-6" />
+            </div>
         </div>
-        <div>
-            <p className="text-sm font-medium text-slate-500">{label}</p>
-            <h3 className="text-2xl font-bold text-slate-800 mt-1">{value}</h3>
-            {subtext && <p className="text-xs text-slate-400 mt-1">{subtext}</p>}
-        </div>
+        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+        <h3 className="text-3xl font-black text-slate-800 tracking-tight Outfit mb-2">{value}</h3>
+        <p className="text-[11px] font-bold text-slate-500 italic">{subtext}</p>
     </div>
 );
 
 const Dashboard = () => {
+    const { userData, currentUser } = useAuth();
+    const navigate = useNavigate();
     const [terminals, setTerminals] = useState([]);
     const [campaigns, setCampaigns] = useState([]);
-    const [billing, setBilling] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    const isCliente = userData?.role === 'cliente';
 
     useEffect(() => {
-        // Terminais
-        const qT = query(collection(db, "terminals"));
-        const unsubscribeT = onSnapshot(qT, (snapshot) => {
-            setTerminals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
+        if (!currentUser || !userData) return;
 
-        // Campanhas (para status financeiro)
-        const qC = query(collection(db, "campaigns"));
-        const unsubscribeC = onSnapshot(qC, (snapshot) => {
-            setCampaigns(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
+        console.log("Dashboard: Ativando listeners para", userData.role);
 
-        // Faturamento
-        const qB = query(collection(db, "billing"));
-        const unsubscribeB = onSnapshot(qB, (snapshot) => {
-            setBilling(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        let unsubscribeT = () => { };
+        let unsubscribeC = () => { };
+
+        // Timeout preventivo de 8 segundos
+        const timeout = setTimeout(() => {
             setLoading(false);
-        });
+        }, 8000);
+
+        try {
+            // Query de Terminais (Lido por todos os papéis)
+            const qT = query(collection(db, "terminals"), orderBy("lastSeen", "desc"));
+            unsubscribeT = onSnapshot(qT, (snap) => {
+                setTerminals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            }, (err) => {
+                console.error("Dashboard Terminal Error:", err);
+                // Não bloqueamos a UI por erro nos terminais para clientes
+            });
+
+            // Query de Campanhas (Diferenciada por papel)
+            const qC = isCliente
+                ? query(collection(db, "campaigns"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"))
+                : query(collection(db, "campaigns"), orderBy("createdAt", "desc"));
+
+            unsubscribeC = onSnapshot(qC, (snap) => {
+                setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                setLoading(false);
+                clearTimeout(timeout);
+            }, (err) => {
+                console.error("Dashboard Campaign Error:", err);
+                setError(`Erro ao carregar campanhas: ${err.message}`);
+                setLoading(false);
+                clearTimeout(timeout);
+            });
+        } catch (e) {
+            console.error("Dashboard Effect Error:", e);
+            setLoading(false);
+        }
 
         return () => {
             unsubscribeT();
             unsubscribeC();
-            unsubscribeB();
+            clearTimeout(timeout);
         };
-    }, []);
+    }, [currentUser?.uid, userData?.role]);
 
-    const statsData = [
-        { icon: Monitor, label: 'Total de Telas', value: terminals.length, color: 'bg-blue-600', subtext: 'Dispositivos registrados' },
-        { icon: CheckCircle, label: 'Online Agora', value: terminals.filter(t => t.lastSeen && (Date.now() - t.lastSeen.seconds * 1000 < 60000)).length, color: 'bg-emerald-500', subtext: 'Ativos no último minuto' },
-        { icon: AlertTriangle, label: 'Alertas', value: terminals.filter(t => t.lastSeen && (Date.now() - t.lastSeen.seconds * 1000 > 300000)).length, color: 'bg-amber-500', subtext: 'Offline por mais de 5 min' },
-        { icon: DollarSign, label: 'Receita MaaS', value: `R$ ${billing.reduce((acc, curr) => acc + (curr.amount || 0), 0).toFixed(0)}`, color: 'bg-indigo-600', subtext: 'Taxas de criação IA' },
-        { icon: Clock, label: 'Faturas Pendentes', value: campaigns.filter(c => !c.status_financeiro).length, color: 'bg-red-600', subtext: 'Aguardando pagamento' },
-    ];
+    const stats = useMemo(() => {
+        if (isCliente) {
+            return [
+                { icon: Play, label: 'Suas Campanhas', value: campaigns.length, color: 'bg-indigo-600', subtext: 'Criadas por você' },
+                { icon: Monitor, label: 'Telas Ativas', value: calculateUsedScreens(campaigns), color: 'bg-blue-600', subtext: 'Ocupação de quota' },
+                { icon: Clock, label: 'Em Análise', value: campaigns.filter(c => !c.is_active).length, color: 'bg-amber-500', subtext: 'Aguardando publicação' },
+                { icon: Coins, label: 'Saldo Atual', value: userData?.tokens || 0, color: 'bg-emerald-500', subtext: 'Tokens para IA' },
+            ];
+        } else {
+            return [
+                { icon: Monitor, label: 'Parque Total', value: terminals.length, color: 'bg-indigo-600', subtext: 'Terminais registrados' },
+                {
+                    icon: CheckCircle, label: 'Online Agora', value: terminals.filter(t => {
+                        const lastSeen = t.lastSeen;
+                        const lastSeenMs = lastSeen?.seconds ? lastSeen.seconds * 1000 : new Date(lastSeen).getTime();
+                        return Date.now() - lastSeenMs < 60000;
+                    }).length, color: 'bg-emerald-500', subtext: 'Ativos no sistema'
+                },
+                { icon: Play, label: 'Campanhas', value: campaigns.length, color: 'bg-blue-600', subtext: 'Total no MaaS' },
+                { icon: AlertTriangle, label: 'Pendentes', value: campaigns.filter(c => !c.is_active).length, color: 'bg-rose-500', subtext: 'Requerem validação' },
+            ];
+        }
+    }, [campaigns, terminals, isCliente, userData]);
+
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px]">
+                <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-4" />
+                <p className="text-slate-400 font-bold italic animate-pulse">Sincronizando dados...</p>
+            </div>
+        );
+    }
 
     return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <div>
-                    <h2 className="text-2xl font-bold text-slate-800">Visão Geral</h2>
-                    <p className="text-slate-500">Inteligência de Rede e Mídia-as-a-Service.</p>
+        <div className="space-y-8 animate-fade-in">
+            {error && (
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl text-amber-800 text-sm font-bold flex items-center space-x-3">
+                    <AlertTriangle className="w-5 h-5" />
+                    <span>{error}</span>
                 </div>
-                <div className="bg-white px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-500 flex items-center gap-2">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                    SISTEMA OPERACIONAL
+            )}
+
+            {/* Welcome Hero */}
+            <div className="bg-gradient-premium rounded-[2.5rem] p-10 md:p-12 text-white shadow-2xl relative overflow-hidden">
+                <Sparkles className="absolute top-0 right-0 w-64 h-64 opacity-5 translate-x-1/4 -translate-y-1/4" />
+                <div className="relative z-10">
+                    <h2 className="text-4xl font-black Outfit tracking-tight mb-2">
+                        Olá, {userData?.displayName?.split(' ')[0] || 'Bem-vindo'}!
+                    </h2>
+                    <p className="text-indigo-200 font-medium max-w-md">
+                        {isCliente ? 'Aqui está o resumo da sua rede de publicidade digital.' : 'Consolidação de métricas operacionais do sistema.'}
+                    </p>
+
+                    {isCliente && (
+                        <div className="mt-6 flex flex-wrap gap-4">
+                            <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10 text-xs">
+                                <span className="text-indigo-300 uppercase tracking-widest font-black block text-[8px] mb-1">Plano</span>
+                                <span className="font-bold">{getPlanName(userData?.plan)}</span>
+                            </div>
+                            <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10 text-xs">
+                                <span className="text-indigo-300 uppercase tracking-widest font-black block text-[8px] mb-1">Validade</span>
+                                <span className="font-bold">{getDaysUntilExpiration(userData?.planExpiresAt)} dias</span>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-                {loading ? (
-                    <div className="col-span-full py-12 text-center text-slate-400">Carregando métricas...</div>
-                ) : (
-                    statsData.map((stat, index) => (
-                        <StatCard key={index} {...stat} />
-                    ))
-                )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {stats.map((s, i) => <StatCard key={i} {...s} />)}
             </div>
 
-            {/* Main Content Area */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Recent Activity */}
-                <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+            {/* Quick Actions / Activity */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 bg-white rounded-[2rem] p-8 border border-slate-100 premium-shadow">
                     <div className="flex justify-between items-center mb-6">
-                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                            <Activity className="w-5 h-5 text-blue-600" />
-                            Status da Rede (Tempo Real)
-                        </h3>
+                        <h3 className="text-xl font-black text-slate-800 Outfit">Atividade Recente</h3>
+                        <button onClick={() => navigate('/campaigns')} className="text-xs font-black text-indigo-600 flex items-center space-x-1 hover:underline">
+                            <span>Ver tudo</span>
+                            <ArrowRight className="w-3 h-3" />
+                        </button>
                     </div>
-                    <div className="h-64 flex items-center justify-center bg-slate-50 rounded-lg border border-slate-200 border-dashed">
-                        <div className="text-center">
-                            <TrendingUp className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                            <p className="text-slate-400 font-medium">Gráfico de desempenho será exibido aqui</p>
-                            <p className="text-xs text-slate-400 mt-1">Conecte mais players para visualizar métricas de tráfego.</p>
-                        </div>
+                    <div className="space-y-4">
+                        {campaigns.slice(0, 3).map(c => (
+                            <div key={c.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                <div className="flex items-center space-x-4">
+                                    <div className={`p-3 rounded-xl ${c.is_active ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-400'}`}>
+                                        <Play className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-slate-800 text-sm leading-none">{c.name}</p>
+                                        <p className="text-[10px] text-slate-400 mt-1 uppercase font-black tracking-widest">
+                                            {c.targetTerminals?.length || 0} Telas • {c.createdAt?.seconds ? new Date(c.createdAt.seconds * 1000).toLocaleDateString() : 'Aguardando'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase ${c.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                    {c.is_active ? 'Ativa' : 'Pendente'}
+                                </span>
+                            </div>
+                        ))}
+                        {campaigns.length === 0 && <p className="text-center py-6 text-slate-300 italic">Nenhuma atividade registrada.</p>}
                     </div>
                 </div>
 
-                {/* Status Financeiro Rápido */}
-                <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <DollarSign className="w-5 h-5 text-emerald-600" />
-                        Saúde Financeira
-                    </h3>
-                    <div className="space-y-4">
-                        <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
-                            <div className="flex justify-between items-center mb-1">
-                                <span className="text-xs font-bold text-emerald-700 uppercase">Em Dia</span>
-                                <span className="text-sm font-bold text-emerald-800">{campaigns.filter(c => c.status_financeiro).length}</span>
+                <div className="bg-white rounded-[2rem] p-8 border border-slate-100 premium-shadow h-full">
+                    <h3 className="text-xl font-black text-slate-800 Outfit mb-4">Eficiência de Rede</h3>
+                    {(() => {
+                        const used = calculateUsedScreens(campaigns);
+                        const quota = getPlanQuota(userData?.plan);
+                        const perc = quota === Infinity ? (used > 0 ? 50 : 0) : (used / quota) * 100;
+                        return (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-end">
+                                    <span className="text-4xl font-black text-indigo-600 Outfit">{used}</span>
+                                    <span className="text-xs font-black text-slate-400 uppercase tracking-widest">{Math.round(perc)}% do Uso</span>
+                                </div>
+                                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                    <div className="bg-indigo-600 h-full transition-all duration-1000" style={{ width: `${Math.min(perc, 100)}%` }} />
+                                </div>
+                                <p className="text-[10px] text-slate-400 font-bold italic">
+                                    {used >= quota ? 'Limite atingido! Considere um upgrade.' : 'Sua quota está dentro dos limites do plano.'}
+                                </p>
                             </div>
-                            <div className="w-full bg-emerald-200 h-1 rounded-full overflow-hidden">
-                                <div className="bg-emerald-600 h-full" style={{ width: `${(campaigns.filter(c => c.status_financeiro).length / (campaigns.length || 1)) * 100}%` }} />
-                            </div>
-                        </div>
-                        <div className="p-3 rounded-lg bg-red-50 border border-red-100">
-                            <div className="flex justify-between items-center mb-1">
-                                <span className="text-xs font-bold text-red-700 uppercase">Inadimplentes</span>
-                                <span className="text-sm font-bold text-red-800">{campaigns.filter(c => !c.status_financeiro).length}</span>
-                            </div>
-                            <div className="w-full bg-red-200 h-1 rounded-full overflow-hidden">
-                                <div className="bg-red-600 h-full" style={{ width: `${(campaigns.filter(c => !c.status_financeiro).length / (campaigns.length || 1)) * 100}%` }} />
-                            </div>
-                        </div>
-                        <p className="text-[10px] text-slate-400 italic mt-4">
-                            * Campanhas inadimplentes são automaticamente substituídas por conteúdo de filler nos players.
-                        </p>
-                    </div>
+                        );
+                    })()}
                 </div>
             </div>
         </div>

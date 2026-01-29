@@ -1,103 +1,169 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Monitor, Image, ListVideo, Users, Settings, LogOut, Menu, Bell } from 'lucide-react';
+import {
+    LayoutDashboard, Monitor, Image, ListVideo, Users, Settings, LogOut,
+    Menu, Bell, Coins, CreditCard, Package, ChevronRight, X
+} from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
-const SidebarItem = ({ icon: Icon, label, path, active, onClick }) => (
+const SidebarItem = ({ icon: Icon, label, active, onClick }) => (
     <button
         onClick={onClick}
-        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 ${active
-            ? 'bg-blue-600 text-white shadow-lg'
-            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+        className={`w-full group flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-300 ${active
+            ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30'
+            : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
             }`}
     >
-        <Icon className="w-5 h-5" />
-        <span className="font-medium">{label}</span>
+        <div className="flex items-center space-x-3">
+            <Icon className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${active ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} />
+            <span className="font-semibold tracking-tight">{label}</span>
+        </div>
+        {active && <ChevronRight className="w-4 h-4 text-indigo-200" />}
     </button>
 );
 
 const Layout = () => {
     const navigate = useNavigate();
     const location = useLocation();
+    const { logout, userData } = useAuth();
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-    const handleLogout = () => {
+    const isCliente = userData?.role === 'cliente';
+
+    const handleLogout = async () => {
+        await logout();
         navigate('/');
     };
 
     const menuItems = [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-        { icon: Monitor, label: 'Telas (Players)', path: '/players' },
-        { icon: Image, label: 'Biblioteca', path: '/media' },
-        { icon: ListVideo, label: 'Campanhas', path: '/campaigns' },
-        { icon: ListVideo, label: 'Playlists', path: '/playlists' },
-        { icon: Users, label: 'Financeiro', path: '/finance' },
-        { icon: Users, label: 'Usuários', path: '/users' },
+        { icon: Monitor, label: 'Telas (Players)', path: '/players', hidden: isCliente },
+        { icon: Image, label: 'Minha Biblioteca', path: '/media' },
+        { icon: ListVideo, label: 'Minhas Campanhas', path: '/campaigns' },
+        { icon: ListVideo, label: 'Playlists Globais', path: '/playlists', hidden: isCliente },
+        { icon: Package, label: 'Meu Plano', path: '/my-plan', hidden: !isCliente },
+        { icon: CreditCard, label: 'Tokens & Finanças', path: '/finance' },
+        { icon: Users, label: 'Gestão de Usuários', path: '/users', hidden: isCliente },
         { icon: Settings, label: 'Configurações', path: '/settings' },
     ];
 
     return (
-        <div className="flex h-screen bg-slate-100">
+        <div className="flex h-screen bg-mesh overflow-hidden font-['Inter'] font-medium">
+            {/* Mobile Sidebar Overlay */}
+            {isMobileMenuOpen && (
+                <div
+                    className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 md:hidden"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                />
+            )}
+
             {/* Sidebar */}
-            <aside className="w-64 bg-slate-900 text-white hidden md:flex flex-col">
-                <div className="p-6 border-b border-slate-800">
-                    <h1 className="text-xl font-bold flex items-center space-x-2">
-                        <span className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-lg">C</span>
-                        <span>Conecta Local</span>
-                    </h1>
+            <aside className={`
+                fixed md:static inset-y-0 left-0 w-72 bg-gradient-premium text-white z-50 transform transition-transform duration-300 ease-in-out
+                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+                flex flex-col border-r border-slate-800/50
+            `}>
+                <div className="p-8">
+                    <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-600/40 transform -rotate-3 hover:rotate-0 transition-transform cursor-pointer">
+                            C
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-xl font-black italic tracking-tighter leading-none Outfit">CONECTA</span>
+                            <span className="text-[10px] uppercase font-black tracking-[0.3em] text-indigo-400 leading-none mt-1">Local AdManager</span>
+                        </div>
+                    </div>
                 </div>
 
-                <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-                    {menuItems.map((item) => (
+                <nav className="flex-1 px-4 py-2 space-y-2 overflow-y-auto">
+                    {menuItems.filter(i => !i.hidden).map((item) => (
                         <SidebarItem
                             key={item.path}
                             icon={item.icon}
                             label={item.label}
-                            path={item.path}
                             active={location.pathname === item.path}
-                            onClick={() => navigate(item.path)}
+                            onClick={() => {
+                                navigate(item.path);
+                                setIsMobileMenuOpen(false);
+                            }}
                         />
                     ))}
                 </nav>
 
-                <div className="p-4 border-t border-slate-800">
+                <div className="p-6 border-t border-slate-800/50">
+                    <div className="bg-slate-800/30 rounded-2xl p-4 mb-4 border border-white/5">
+                        <p className="text-[10px] uppercase font-black text-slate-500 mb-2 tracking-widest">Estado da Conta</p>
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-bold text-slate-200 truncate">{userData?.displayName}</span>
+                            <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 text-[10px] font-black uppercase">
+                                {userData?.role}
+                            </span>
+                        </div>
+                    </div>
                     <button
                         onClick={handleLogout}
-                        className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
+                        className="w-full flex items-center justify-center space-x-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all font-bold text-sm border border-transparent hover:border-red-500/20"
                     >
-                        <LogOut className="w-5 h-5" />
-                        <span>Sair</span>
+                        <LogOut className="w-4 h-4" />
+                        <span>Sair do Painel</span>
                     </button>
                 </div>
             </aside>
 
             {/* Main Content */}
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
                 {/* Top Header */}
-                <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
-                    <button className="md:hidden text-gray-500 hover:text-gray-700">
-                        <Menu className="w-6 h-6" />
+                <header className="h-20 glass border-b border-slate-200/60 flex items-center justify-between px-8 z-30">
+                    <button
+                        onClick={() => setIsMobileMenuOpen(true)}
+                        className="md:hidden p-2.5 bg-white rounded-xl shadow-sm border border-slate-200 text-slate-600 active:scale-90 transition-transform"
+                    >
+                        <Menu className="w-5 h-5" />
                     </button>
 
-                    <div className="flex items-center ml-auto space-x-4">
-                        <button className="relative p-2 text-gray-400 hover:text-blue-600 transition-colors rounded-full hover:bg-blue-50">
+                    <div className="flex items-center ml-auto space-x-4 md:space-x-6">
+                        {/* Token Balance */}
+                        <div
+                            onClick={() => navigate('/finance')}
+                            className="bg-white premium-shadow border border-slate-100 px-4 py-2 rounded-2xl flex items-center space-x-3 cursor-pointer hover:border-indigo-300 hover:translate-y-[-2px] transition-all group"
+                        >
+                            <div className="w-8 h-8 bg-amber-50 rounded-xl flex items-center justify-center group-hover:bg-amber-100 transition-colors">
+                                <Coins className="w-4 h-4 text-amber-500" />
+                            </div>
+                            <div className="flex flex-col -space-y-0.5">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Tokens Disponíveis</span>
+                                <span className="text-sm font-black text-slate-800 tracking-tight">{userData?.tokens?.toLocaleString() || 0}</span>
+                            </div>
+                        </div>
+
+                        {/* Notifications */}
+                        <button className="p-2.5 bg-white premium-shadow border border-slate-100 rounded-xl text-slate-400 hover:text-indigo-600 hover:border-indigo-100 transition-all relative">
                             <Bell className="w-5 h-5" />
-                            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                            <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></span>
                         </button>
 
-                        <div className="flex items-center space-x-3 border-l pl-4 border-gray-200">
+                        {/* Profile Wrapper */}
+                        <div className="flex items-center space-x-3 pl-4 border-l border-slate-200/60">
                             <div className="text-right hidden sm:block">
-                                <p className="text-sm font-semibold text-gray-800">Admin Master</p>
-                                <p className="text-xs text-gray-500">CEO</p>
+                                <p className="text-sm font-black text-slate-800 tracking-tight Outfit leading-none">
+                                    {userData?.displayName?.split(' ')[0] || 'Usuário'}
+                                </p>
+                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] mt-1 opacity-70">
+                                    {userData?.role} Account
+                                </p>
                             </div>
-                            <div className="w-9 h-9 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold border border-blue-200">
-                                AM
+                            <div className="w-11 h-11 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-lg shadow-indigo-600/20 border-2 border-white transform hover:rotate-6 transition-transform cursor-pointer">
+                                {userData?.displayName?.substring(0, 2).toUpperCase() || '??'}
                             </div>
                         </div>
                     </div>
                 </header>
 
                 {/* Page Content */}
-                <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-50 p-6">
-                    <Outlet />
+                <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-8">
+                    <div className="max-w-7xl mx-auto animate-fade-in pb-12">
+                        <Outlet />
+                    </div>
                 </main>
             </div>
         </div>

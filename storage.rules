@@ -1,0 +1,66 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // ========================================
+    // HELPER FUNCTIONS
+    // ========================================
+    
+    // Verifica se o usuário está autenticado
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Verifica se o usuário é admin
+    function isAdmin() {
+      return isAuthenticated() && 
+             firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // Verifica se o arquivo é uma imagem ou vídeo
+    function isValidMediaType() {
+      return request.resource.contentType.matches('image/.*') || 
+             request.resource.contentType.matches('video/.*');
+    }
+    
+    // Verifica se o arquivo não excede 100MB
+    function isValidSize() {
+      return request.resource.size <= 100 * 1024 * 1024; // 100MB em bytes
+    }
+    
+    // ========================================
+    // PASTA: media/{userId}/{fileName}
+    // ========================================
+    match /media/{userId}/{fileName} {
+      // Leitura: dono dos arquivos ou admin
+      allow read: if isAuthenticated() && 
+                    (request.auth.uid == userId || isAdmin());
+      
+      // Upload: apenas o próprio usuário pode fazer upload na sua pasta
+      // Validações: tipo de arquivo e tamanho
+      allow create: if isAuthenticated() && 
+                      request.auth.uid == userId &&
+                      isValidMediaType() &&
+                      isValidSize();
+      
+      // Atualização: dono ou admin
+      allow update: if isAuthenticated() && 
+                      (request.auth.uid == userId || isAdmin()) &&
+                      isValidMediaType() &&
+                      isValidSize();
+      
+      // Deleção: dono ou admin
+      allow delete: if isAuthenticated() && 
+                      (request.auth.uid == userId || isAdmin());
+    }
+    
+    // ========================================
+    // REGRA PADRÃO: NEGAR TUDO
+    // ========================================
+    // Qualquer caminho não especificado acima é bloqueado
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
