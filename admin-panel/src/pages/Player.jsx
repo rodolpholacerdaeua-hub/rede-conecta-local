@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { db } from '../firebase';
-import { doc, onSnapshot, collection, query, where, updateDoc, serverTimestamp, getDoc, or } from 'firebase/firestore';
+import { supabase } from '../supabase';
+import { getDocument, updateDocument } from '../db';
 
 /**
  * Player Standalone - O "Coração" do sistema nos totens.
@@ -19,6 +19,8 @@ const Player = () => {
 
     const playlistRef = useRef([]);
     const timerRef = useRef(null);
+    const terminalRef = useRef(null);
+    const currentMediaRef = useRef(null);
 
     // Função para verificar se a tela deve estar ligada baseado em horário e comandos
     const checkPowerStatus = (termData) => {
@@ -59,69 +61,132 @@ const Player = () => {
         }
 
         setStatus('Conectando ao Terminal...');
-        const docRef = doc(db, "terminals", terminalId);
 
-        const unsubscribe = onSnapshot(docRef, (snap) => {
-            if (snap.exists()) {
-                const data = snap.data();
-                const power = checkPowerStatus(data);
-
-                setTerminal({ id: snap.id, ...data });
-                setIsPoweredOn(power);
-                setStatus(power ? 'Terminal Ativo' : 'Standby (Fora de Horário)');
-
-                // Se desligar agora, mata o timer de rotação
-                if (!power && timerRef.current) {
-                    clearTimeout(timerRef.current);
-                    timerRef.current = null;
-                }
-            } else {
-                setError('Terminal não encontrado no banco de dados.');
-            }
-        }, (err) => {
-            console.error("Player Error:", err);
-            setError(`Erro de conexão: ${err.message}`);
-        });
-
-        // Loop de Heartbeat e Verificação de Horário (A cada 30s)
-        const heartbeat = setInterval(async () => {
+        // Função de Heartbeat Centralizada ("Turbo")
+        const sendHeartbeat = async (extraData = {}) => {
             try {
-                // Notifica que está online no Firestore
-                await updateDoc(docRef, {
-                    lastSeen: serverTimestamp(),
-                    status: 'online'
+                const now = Date.now();
+                await updateDocument('terminals', terminalId, {
+                    last_seen: new Date().toISOString(),
+                    status: 'online',
+                    heartbeat_counter: (terminalRef.current?.heartbeat_counter || 0) + 1,
+                    ...extraData
                 });
-
-                // Re-checa o status de energia baseado no tempo atual
-                const checkNow = async () => {
-                    const snap = await getDoc(docRef);
-                    if (snap.exists()) {
-                        const data = snap.data();
-                        const power = checkPowerStatus(data);
-
-                        setIsPoweredOn(power);
-                        setStatus(power ? 'Terminal Ativo' : 'Standby (Fora de Horário)');
-
-                        if (!power && timerRef.current) {
-                            clearTimeout(timerRef.current);
-                            timerRef.current = null;
-                        }
-
-                        if (power && !timerRef.current && playlistRef.current.length > 0) {
-                            playNext();
-                        }
-                    }
-                };
-
-                checkNow();
-
+                console.log("💓 [ECO-EARS] Batimento enviado:", now);
             } catch (e) {
                 console.warn("Heartbeat failed", e);
+            }
+        };
+
+        // Fetch inicial
+        const fetchTerminal = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('terminals')
+                    .select('*')
+                    .eq('id', terminalId)
+                    .single();
+
+                if (error) throw error;
+                if (data) {
+                    const power = checkPowerStatus(data);
+                    setTerminal({ id: data.id, ...data });
+                    terminalRef.current = { id: data.id, ...data, isPoweredOn: power };
+                    setIsPoweredOn(power);
+                    setStatus(power ? 'Terminal Ativo' : 'Standby (Fora de Horário)');
+                } else {
+                    setError('Terminal não encontrado no banco de dados.');
+                }
+            } catch (err) {
+                console.error("Player Error:", err);
+                setError(`Erro de conexão: ${err.message}`);
+            }
+        };
+
+        // Heartbeat Inicial (Imediato na montagem)
+        sendHeartbeat();
+        fetchTerminal();
+
+        // Realtime subscription
+        const channel = supabase
+            .channel(`terminal-player-${terminalId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'terminals',
+                filter: `id=eq.${terminalId}`
+            }, (payload) => {
+                if (payload.new) {
+                    const data = payload.new;
+                    const power = checkPowerStatus(data);
+
+                    const oldPower = terminalRef.current?.isPoweredOn;
+                    const oldPlaylist = terminalRef.current?.active_playlist_id;
+
+                    setTerminal({ id: data.id, ...data });
+                    terminalRef.current = { id: data.id, ...data, isPoweredOn: power };
+                    setIsPoweredOn(power);
+                    setStatus(power ? 'Terminal Ativo' : 'Standby (Fora de Horário)');
+
+                    // [ECO-EARS] Escuta ativa
+                    const hasCommandChanged = oldPower !== undefined && (
+                        oldPower !== power ||
+                        oldPlaylist !== data.active_playlist_id ||
+                        terminalRef.current?.is_monitoring !== data.is_monitoring
+                    );
+
+                    if (hasCommandChanged) {
+                        console.log("⚡ [REACTIVE-EARS] Comando recebido da central! Respondendo AGORA...");
+                        if (!terminalRef.current?.is_monitoring && data.is_monitoring && currentMediaRef.current) {
+                            const media = currentMediaRef.current;
+                            sendHeartbeat({
+                                current_media_name: media.itemType === 'campaign' ? (media.campaignName || 'Campanha') : 'Mídia Direta',
+                                current_media_url: media.url,
+                                current_media_type: media.type,
+                                last_monitor_update: new Date().toISOString()
+                            });
+                        } else {
+                            sendHeartbeat();
+                        }
+                    }
+
+                    if (power && !timerRef.current && playlistRef.current.length > 0) {
+                        console.log("🎬 [REPLAY] Retomando reprodução após comando de ativação.");
+                        playNext();
+                    }
+
+                    if (!power && timerRef.current) {
+                        console.log("🛑 [STANDBY] Parando reprodução por comando ou agenda.");
+                        clearTimeout(timerRef.current);
+                        timerRef.current = null;
+                    }
+                }
+            })
+            .subscribe();
+
+        // Loop de Heartbeat e Auto-reparo de Status (A cada 30s)
+        const heartbeat = setInterval(() => {
+            sendHeartbeat();
+
+            if (terminalRef.current) {
+                const power = checkPowerStatus(terminalRef.current);
+                const currentPower = terminalRef.current.isPoweredOn;
+
+                if (power !== currentPower) {
+                    console.log(`⏱️ [TURBO] Horário de operação mudou. Novo estado: ${power ? 'ON' : 'OFF'}`);
+                    setIsPoweredOn(power);
+                    terminalRef.current.isPoweredOn = power;
+                    setStatus(power ? 'Terminal Ativo' : 'Standby (Fora de Horário)');
+
+                    if (power && !timerRef.current && playlistRef.current.length > 0) {
+                        playNext();
+                    }
+                }
             }
         }, 30000);
 
         return () => {
-            unsubscribe();
+            supabase.removeChannel(channel);
             clearInterval(heartbeat);
             if (timerRef.current) clearTimeout(timerRef.current);
         };
@@ -144,8 +209,24 @@ const Player = () => {
                     const local = data.localItems || [];
                     const global = data.globalItems || [];
                     const combined = [...local, ...global];
+                    const validItems = [];
+                    for (const item of combined) {
+                        try {
+                            if (item.type === 'campaign') {
+                                const campRef = doc(db, "campaigns", item.id);
+                                const campSnap = await getDoc(campRef);
+                                if (campSnap.exists() && campSnap.data().moderation_status === 'approved') {
+                                    validItems.push(item);
+                                } else {
+                                    console.log(`Player: Campanha ${item.id} ignorada por falta de aprovação.`);
+                                }
+                            } else {
+                                validItems.push(item);
+                            }
+                        } catch (err) { console.error("Erro ao validar item da playlist:", err); }
+                    }
 
-                    const newPlaylist = combined.map(item => ({
+                    const newPlaylist = validItems.map(item => ({
                         campaignId: item.type === 'campaign' ? item.id : null,
                         mediaId: item.type === 'media' ? item.id : null,
                         url: item.url || null,
@@ -178,7 +259,8 @@ const Player = () => {
                     where("targetTerminals", "array-contains", terminalId),
                     where("isGlobal", "==", true)
                 ),
-                where("is_active", "==", true)
+                where("is_active", "==", true),
+                where("moderation_status", "==", "approved")
             );
 
             unsubscribeFallback = onSnapshot(q, (snap) => {
@@ -249,11 +331,33 @@ const Player = () => {
             }
 
             if (finalUrl) {
-                setCurrentMedia({
+                const mediaState = {
                     ...nextItem,
                     url: finalUrl,
                     type: finalType
-                });
+                };
+                setCurrentMedia(mediaState);
+                currentMediaRef.current = mediaState;
+
+                // Reportar ao banco apenas se houver solicitação de monitoramento
+                const mediaName = nextItem.itemType === 'campaign' ? (nextItem.campaignName || 'Campanha') : 'Mídia Direta';
+
+                // Sempre atualiza o texto de status para o painel não ficar "Aguardando"
+                const updatePayload = {
+                    currentMedia: mediaName // Texto simples para a barra de status
+                };
+
+                // Reportar dados pesados de monitoramento apenas se houver solicitação
+                if (terminalRef.current?.isMonitoring) {
+                    console.log("📡 [ECO-LIVE] Reportando status de reprodução sob demanda...");
+                    updatePayload.currentMediaName = mediaName;
+                    updatePayload.currentMediaUrl = finalUrl;
+                    updatePayload.currentMediaType = finalType;
+                    updatePayload.lastMonitorUpdate = serverTimestamp();
+                }
+
+                await updateDoc(doc(db, "terminals", terminalId), updatePayload);
+
             } else {
                 console.warn("Player: Falha grave - não conseguimos resolver URL para este item. Pulando...", nextItem);
                 playNext(); // Pula para o próximo imediatamente
@@ -303,8 +407,15 @@ const Player = () => {
                             src={currentMedia.url}
                             autoPlay
                             muted
+                            playsInline
                             className="w-full h-full object-cover"
                             onEnded={() => {/* Opcional: callback de término */ }}
+                            onError={(e) => {
+                                console.error("Erro ao reproduzir vídeo:", e);
+                                // Força pular se der erro (fallback de segurança)
+                                if (timerRef.current) clearTimeout(timerRef.current);
+                                playNext();
+                            }}
                         />
                     ) : (
                         <img

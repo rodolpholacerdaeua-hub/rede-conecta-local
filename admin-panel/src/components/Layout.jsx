@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard, Monitor, Image, ListVideo, Users, Settings, LogOut,
-    Menu, Bell, Coins, CreditCard, Package, ChevronRight, X
+    Menu, Bell, Coins, CreditCard, Package, ChevronRight, X, BarChart3, UserCheck
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -42,8 +42,10 @@ const Layout = () => {
         { icon: ListVideo, label: 'Minhas Campanhas', path: '/campaigns' },
         { icon: ListVideo, label: 'Playlists Globais', path: '/playlists', hidden: isCliente },
         { icon: Package, label: 'Meu Plano', path: '/my-plan', hidden: !isCliente },
-        { icon: CreditCard, label: 'Tokens & Finanças', path: '/finance' },
+        { icon: CreditCard, label: 'Créditos & Finanças', path: '/finance' },
+        { icon: BarChart3, label: 'Relatórios PoP', path: '/reports' },
         { icon: Users, label: 'Gestão de Usuários', path: '/users', hidden: isCliente },
+        { icon: UserCheck, label: 'Gestão de Leads', path: '/leads', hidden: isCliente },
         { icon: Settings, label: 'Configurações', path: '/settings' },
     ];
 
@@ -122,7 +124,7 @@ const Layout = () => {
                     </button>
 
                     <div className="flex items-center ml-auto space-x-4 md:space-x-6">
-                        {/* Token Balance */}
+                        {/* Credit Balance */}
                         <div
                             onClick={() => navigate('/finance')}
                             className="bg-white premium-shadow border border-slate-100 px-4 py-2 rounded-2xl flex items-center space-x-3 cursor-pointer hover:border-indigo-300 hover:translate-y-[-2px] transition-all group"
@@ -131,7 +133,7 @@ const Layout = () => {
                                 <Coins className="w-4 h-4 text-amber-500" />
                             </div>
                             <div className="flex flex-col -space-y-0.5">
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Tokens Disponíveis</span>
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Créditos</span>
                                 <span className="text-sm font-black text-slate-800 tracking-tight">{userData?.tokens?.toLocaleString() || 0}</span>
                             </div>
                         </div>

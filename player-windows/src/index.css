@@ -1,0 +1,419 @@
+/* 🚀 Rede Conecta - V11 Iron Design (Vanilla CSS) */
+
+:root {
+  --bg-color: #050505;
+  --panel-bg: rgba(15, 15, 20, 0.95);
+  --primary: #6366f1;
+  --primary-glow: rgba(99, 102, 241, 0.4);
+  --text-main: #ffffff;
+  --text-dim: #64748b;
+  --accent: #818cf8;
+  --danger: #ef4444;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Base Layout */
+.app-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Splash Screen */
+.splash-overlay {
+  position: absolute;
+  inset: 0;
+  background: black;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.logo-box {
+  width: 120px;
+  height: 120px;
+  background: var(--primary);
+  border-radius: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2rem;
+  box-shadow: 0 0 50px var(--primary-glow);
+  animation: pulse 2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+}
+
+/* Pairing Panel */
+.panel {
+  background: var(--panel-bg);
+  border: 2px solid rgba(255, 255, 255, 0.05);
+  padding: 4rem;
+  border-radius: 3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  backdrop-filter: blur(20px);
+}
+
+.pairing-box {
+  background: #000;
+  border: 2px solid var(--primary);
+  padding: 3rem 5rem;
+  border-radius: 2rem;
+  margin-top: 2rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.pairing-code {
+  font-family: monospace;
+  font-size: 5rem;
+  font-weight: 900;
+  letter-spacing: 0.5rem;
+  color: var(--accent);
+}
+
+/* Typeography */
+.title {
+  font-size: 3.5rem;
+  font-weight: 900;
+  letter-spacing: -0.1rem;
+}
+
+.subtitle {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.5rem;
+  font-weight: 800;
+}
+
+/* Utility */
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  margin-top: 2rem;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 2rem;
+  border-radius: 1.5rem;
+  font-family: monospace;
+  font-size: 0.6rem;
+}
+
+/* ========================================
+   V15.0 MULTI-ZONE DOOH LAYOUT
+   ======================================== */
+
+/* Layout Grid Principal */
+.multizone-layout {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  grid-template-rows: 1fr 60px;
+  grid-template-areas:
+    "main sidebar"
+    "ticker ticker";
+  background: #000;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.multizone-layout.fullscreen {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  grid-template-areas: "main";
+}
+
+/* Zona Principal - Player */
+.main-player-zone {
+  grid-area: main;
+  position: relative;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.main-player-zone video,
+.main-player-zone img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Sidebar de Widgets */
+.widget-sidebar {
+  grid-area: sidebar;
+  background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 100%);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 16px;
+  gap: 16px;
+  border-left: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.sidebar-brand {
+  text-align: center;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.brand-text {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: white;
+  letter-spacing: -0.05em;
+}
+
+.brand-accent {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #818cf8;
+  letter-spacing: -0.05em;
+}
+
+.widgets-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.widget-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.3s ease;
+}
+
+.widget-card:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.widget-icon {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.widget-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.widget-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: white;
+  line-height: 1.2;
+}
+
+.widget-label {
+  font-size: 0.7rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+
+/* Widget Currency específico */
+.widget-card.currency .widget-content {
+  gap: 4px;
+}
+
+.currency-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.currency-label {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.currency-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: white;
+}
+
+/* Sidebar Footer */
+.sidebar-footer {
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: center;
+}
+
+.powered-by {
+  font-size: 0.6rem;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+
+/* Ticker Tape */
+.ticker-tape {
+  grid-area: ticker;
+  background: linear-gradient(90deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border-top: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.ticker-icon {
+  padding: 0 20px;
+  color: #818cf8;
+  border-right: 1px solid rgba(99, 102, 241, 0.3);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.ticker-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.ticker-content {
+  display: flex;
+  animation: ticker-scroll 60s linear infinite;
+  will-change: transform;
+}
+
+.ticker-text {
+  white-space: nowrap;
+  padding: 0 3rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+@keyframes ticker-scroll {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+/* Media Queries para diferentes resoluções */
+@media (max-width: 1280px) {
+  .multizone-layout {
+    grid-template-columns: 1fr 220px;
+  }
+
+  .widget-value {
+    font-size: 1.2rem;
+  }
+}
+
+@media (max-width: 960px) {
+  .multizone-layout {
+    grid-template-columns: 1fr 180px;
+  }
+
+  .widget-card {
+    padding: 12px;
+  }
+
+  .widget-icon {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Modo TV (resolução alta) */
+@media (min-width: 1920px) {
+  .multizone-layout {
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: 1fr 80px;
+  }
+
+  .widget-value {
+    font-size: 1.8rem;
+  }
+
+  .ticker-text {
+    font-size: 1.2rem;
+  }
+}

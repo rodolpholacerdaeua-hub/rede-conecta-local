@@ -1,7 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
-import { auth, db } from '../firebase';
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
+import { supabase, signIn, signUp, signOut, onAuthStateChange, getUserProfile, getCurrentUser } from '../supabase';
 
 const AuthContext = createContext();
 
@@ -16,76 +14,169 @@ export function AuthProvider({ children }) {
     const [authStep, setAuthStep] = useState('Iniciando...');
     const userDataRef = useRef(null);
 
-    function login(email, password) {
-        return signInWithEmailAndPassword(auth, email, password);
+    // Login com email/senha
+    async function login(email, password) {
+        const { data, error } = await signIn(email, password);
+        if (error) throw error;
+        return data;
     }
 
-    async function signup(email, password, displayName) {
-        const res = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(res.user, { displayName });
+    // Registro de novo usuário
+    async function signup(email, password, displayName, phone = '') {
+        const { data, error } = await signUp(email, password, { name: displayName, phone });
+        if (error) throw error;
 
-        const userDocRef = doc(db, "users", res.user.uid);
-        const planExpiresAt = new Date();
-        planExpiresAt.setDate(planExpiresAt.getDate() + 30);
+        // Após cadastro, inserir perfil na tabela users
+        // (O trigger também faz isso, mas garantimos aqui caso o trigger falhe)
+        if (data.user) {
+            const { error: profileError } = await supabase
+                .from('users')
+                .upsert({
+                    id: data.user.id,
+                    email,
+                    name: displayName,
+                    phone,
+                    role: 'cliente',
+                    tokens: 0
+                }, { onConflict: 'id' });
 
-        await setDoc(userDocRef, {
-            email,
-            role: 'cliente',
-            tokens: 0,
-            displayName,
-            plan: 'start',
-            planExpiresAt,
-            autoRenew: false,
-            planStartedAt: new Date(),
-            createdAt: new Date()
-        });
-        return res;
+            if (profileError) {
+                console.error('Erro ao criar perfil:', profileError);
+            }
+        }
+        return data;
     }
 
-    function logout() {
-        return signOut(auth);
+    // Logout
+    async function logout() {
+        const { error } = await signOut();
+        if (error) throw error;
     }
 
+    // Listener de Auth
     useEffect(() => {
-        const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+        // Verificar sessão existente
+        const checkSession = async () => {
+            const user = await getCurrentUser();
             setCurrentUser(user);
             if (!user) {
                 setUserData(null);
                 userDataRef.current = null;
                 setLoading(false);
             }
+        };
+        checkSession();
+
+        // Listener de mudanças
+        const { data: { subscription } } = onAuthStateChange((event, session) => {
+            console.log('Auth event:', event);
+            if (session?.user) {
+                setCurrentUser(session.user);
+            } else {
+                setCurrentUser(null);
+                setUserData(null);
+                userDataRef.current = null;
+            }
         });
 
-        return () => unsubscribeAuth();
+        return () => subscription?.unsubscribe();
     }, []);
 
+    // Buscar dados do usuário quando logado
     useEffect(() => {
         if (!currentUser) return;
 
         setAuthStep('Sincronizando perfil...');
-        const userDocRef = doc(db, "users", currentUser.uid);
 
-        const unsubscribeSnap = onSnapshot(userDocRef, (snap) => {
-            if (snap.exists()) {
-                const newData = { id: snap.id, ...snap.data() };
+        const fetchProfile = async () => {
+            try {
+                const { data, error } = await getUserProfile(currentUser.id);
 
-                // COMPARAÇÃO PROFUNDA PARA EVITAR LOOP
-                const oldDataStr = JSON.stringify(userDataRef.current);
-                const newDataStr = JSON.stringify(newData);
+                if (data) {
+                    // Perfil encontrado - mapear campos
+                    const newData = {
+                        id: data.id,
+                        ...data,
+                        displayName: data.display_name || data.name || data.email?.split('@')[0] || 'Usuário',
+                        plan: data.plan || 'start'
+                    };
+                    const oldDataStr = JSON.stringify(userDataRef.current);
+                    const newDataStr = JSON.stringify(newData);
 
-                if (oldDataStr !== newDataStr) {
-                    userDataRef.current = newData;
-                    setUserData(newData);
+                    if (oldDataStr !== newDataStr) {
+                        userDataRef.current = newData;
+                        setUserData(newData);
+                    }
+                } else if (error?.code === 'PGRST116') {
+                    // Perfil não encontrado - criar automaticamente
+                    console.warn('Perfil não encontrado, criando automaticamente...');
+                    const { data: newProfile, error: createError } = await supabase
+                        .from('users')
+                        .insert({
+                            id: currentUser.id,
+                            email: currentUser.email,
+                            name: currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'Usuário',
+                            phone: currentUser.user_metadata?.phone || '',
+                            role: 'cliente',
+                            tokens: 0
+                        })
+                        .select()
+                        .single();
+
+                    if (newProfile) {
+                        const newData = {
+                            id: newProfile.id,
+                            ...newProfile,
+                            displayName: newProfile.name || newProfile.email?.split('@')[0] || 'Usuário',
+                            plan: 'start'
+                        };
+                        userDataRef.current = newData;
+                        setUserData(newData);
+                    } else if (createError) {
+                        console.error("Erro ao criar perfil:", createError);
+                    }
+                } else if (error) {
+                    console.error("AuthContext Error:", error);
                 }
+            } catch (e) {
+                console.error("Erro inesperado no fetchProfile:", e);
+            } finally {
+                // SEMPRE liberar o loading, independente do resultado
+                setLoading(false);
             }
-            setLoading(false);
-        }, (error) => {
-            console.error("AuthContext Error:", error);
-            setLoading(false);
-        });
+        };
+        fetchProfile();
 
-        return () => unsubscribeSnap();
-    }, [currentUser?.uid]);
+        // Realtime subscription para mudanças no perfil
+        const channel = supabase
+            .channel(`user:${currentUser.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'users',
+                    filter: `id=eq.${currentUser.id}`
+                },
+                (payload) => {
+                    if (payload.new) {
+                        const newData = { id: payload.new.id, ...payload.new };
+                        const oldDataStr = JSON.stringify(userDataRef.current);
+                        const newDataStr = JSON.stringify(newData);
+
+                        if (oldDataStr !== newDataStr) {
+                            userDataRef.current = newData;
+                            setUserData(newData);
+                        }
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [currentUser?.id]);
 
     const value = useMemo(() => ({
         currentUser,
@@ -93,7 +184,7 @@ export function AuthProvider({ children }) {
         login,
         signup,
         logout
-    }), [currentUser?.uid, userData]);
+    }), [currentUser?.id, userData]);
 
     return (
         <AuthContext.Provider value={value}>

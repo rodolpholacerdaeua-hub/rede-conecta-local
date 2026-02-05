@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db } from '../firebase';
-import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
+import { db, fetchCollection, updateDocument, deleteDocument, subscribeToCollection } from '../db';
+import { supabase } from '../supabase';
 import {
     Monitor, CheckCircle, AlertTriangle, Play, Clock, Package,
-    Sparkles, Zap, Coins, ArrowRight, Calendar
+    Sparkles, Zap, Coins, ArrowRight, Calendar, BarChart3
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
     getPlanName, getPlanQuota,
-    getDaysUntilExpiration, calculateUsedScreens
+    getDaysUntilExpiration, calculateUsedScreens, isAdmin
 } from '../utils/planHelpers';
 import { useNavigate } from 'react-router-dom';
+import CheckoutModal from '../components/CheckoutModal';
+import ScreenAlertsPanel from '../components/ScreenAlertsPanel';
 
 const StatCard = ({ icon: Icon, label, value, color, subtext }) => (
     <div className="bg-white rounded-3xl p-6 border border-slate-100 premium-shadow group hover:border-indigo-200 transition-all duration-300">
@@ -32,66 +34,121 @@ const Dashboard = () => {
     const [campaigns, setCampaigns] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [popCount, setPopCount] = useState(0);
 
+    const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
     const isCliente = userData?.role === 'cliente';
+
+    // Script Temporário de Reset para Simulação (Rodolpho)
+    useEffect(() => {
+        const runReset = async () => {
+            if (userData?.role !== 'admin' || localStorage.getItem('simulation_reset_done')) return;
+
+            try {
+                console.log("🛠️ [RESET] Iniciando limpeza para simulação...");
+                const { data: users } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('email', 'rodolpho@gmail.com')
+                    .single();
+
+                if (!users) {
+                    console.warn("⚠️ [RESET] Usuário rodolpho@gmail.com não encontrado.");
+                    return;
+                }
+
+                const targetUid = users.id;
+
+                // 1. Deletar Campanhas
+                await supabase
+                    .from('campaigns')
+                    .delete()
+                    .eq('owner_id', targetUid);
+
+                // 2. Resetar Tokens (Garantir 500 para teste IA)
+                await supabase
+                    .from('users')
+                    .update({ tokens: 500 })
+                    .eq('id', targetUid);
+
+                console.log(`✅ [RESET] Limpeza concluída para o UID: ${targetUid}`);
+                alert("🧹 RESET DE SIMULAÇÃO: As campanhas de 'rodolpho@gmail.com' foram excluídas e o saldo foi resetado para 500 tokens. Você já pode testar o fluxo!");
+                localStorage.setItem('simulation_reset_done', 'true');
+            } catch (err) {
+                console.error("❌ [RESET] Erro ao limpar dados:", err);
+            }
+        };
+
+        runReset();
+    }, [userData]);
 
     useEffect(() => {
         if (!currentUser || !userData) return;
 
-        console.log("Dashboard: Ativando listeners para", userData.role);
-
-        let unsubscribeT = () => { };
-        let unsubscribeC = () => { };
+        console.log("Dashboard: Carregando dados via Supabase para", userData.role);
+        let isMounted = true;
 
         // Timeout preventivo de 8 segundos
         const timeout = setTimeout(() => {
             setLoading(false);
         }, 8000);
 
-        try {
-            // Query de Terminais (Lido por todos os papéis)
-            const qT = query(collection(db, "terminals"), orderBy("lastSeen", "desc"));
-            unsubscribeT = onSnapshot(qT, (snap) => {
-                setTerminals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-            }, (err) => {
-                console.error("Dashboard Terminal Error:", err);
-                // Não bloqueamos a UI por erro nos terminais para clientes
-            });
+        const loadData = async () => {
+            try {
+                // Query de Terminais
+                let terminalsQuery = supabase.from('terminals').select('*').order('last_seen', { ascending: false });
+                if (isCliente) {
+                    terminalsQuery = terminalsQuery.eq('owner_id', currentUser.id);
+                }
+                const { data: terminalsData, error: tError } = await terminalsQuery;
+                if (tError) console.error("Dashboard Terminal Error:", tError);
+                if (isMounted) setTerminals(terminalsData || []);
 
-            // Query de Campanhas (Diferenciada por papel)
-            const qC = isCliente
-                ? query(collection(db, "campaigns"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"))
-                : query(collection(db, "campaigns"), orderBy("createdAt", "desc"));
+                // Query de Campanhas
+                let campaignsQuery = supabase.from('campaigns').select('*').order('created_at', { ascending: false });
+                if (isCliente) {
+                    campaignsQuery = campaignsQuery.eq('owner_id', currentUser.id);
+                }
+                const { data: campaignsData, error: cError } = await campaignsQuery;
+                if (cError) {
+                    console.error("Dashboard Campaign Error:", cError);
+                    setError(`Erro ao carregar campanhas: ${cError.message}`);
+                }
+                if (isMounted) {
+                    setCampaigns(campaignsData || []);
+                    setLoading(false);
+                    clearTimeout(timeout);
+                }
 
-            unsubscribeC = onSnapshot(qC, (snap) => {
-                setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                setLoading(false);
-                clearTimeout(timeout);
-            }, (err) => {
-                console.error("Dashboard Campaign Error:", err);
-                setError(`Erro ao carregar campanhas: ${err.message}`);
-                setLoading(false);
-                clearTimeout(timeout);
-            });
-        } catch (e) {
-            console.error("Dashboard Effect Error:", e);
-            setLoading(false);
-        }
+                // Query de POP (Apenas para Clientes)
+                if (isCliente) {
+                    const { count } = await supabase
+                        .from('playback_logs')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('owner_id', currentUser.id);
+                    if (isMounted) setPopCount(count || 0);
+                }
+            } catch (e) {
+                console.error("Dashboard Effect Error:", e);
+                if (isMounted) setLoading(false);
+            }
+        };
+
+        loadData();
 
         return () => {
-            unsubscribeT();
-            unsubscribeC();
+            isMounted = false;
             clearTimeout(timeout);
         };
-    }, [currentUser?.uid, userData?.role]);
+    }, [currentUser?.id, userData?.role]);
 
     const stats = useMemo(() => {
         if (isCliente) {
             return [
                 { icon: Play, label: 'Suas Campanhas', value: campaigns.length, color: 'bg-indigo-600', subtext: 'Criadas por você' },
-                { icon: Monitor, label: 'Telas Ativas', value: calculateUsedScreens(campaigns), color: 'bg-blue-600', subtext: 'Ocupação de quota' },
-                { icon: Clock, label: 'Em Análise', value: campaigns.filter(c => !c.is_active).length, color: 'bg-amber-500', subtext: 'Aguardando publicação' },
-                { icon: Coins, label: 'Saldo Atual', value: userData?.tokens || 0, color: 'bg-emerald-500', subtext: 'Tokens para IA' },
+                { icon: BarChart3, label: 'Exibições (POP)', value: popCount.toLocaleString(), color: 'bg-blue-600', subtext: 'Total comprovado' },
+                { icon: Monitor, label: 'Telas Ativas', value: calculateUsedScreens(campaigns), color: 'bg-emerald-500', subtext: 'Ocupação de quota' },
+                { icon: Coins, label: 'Saldo Atual', value: userData?.tokens || 0, color: 'bg-amber-500', subtext: 'Créditos Disponíveis' },
             ];
         } else {
             return [
@@ -126,6 +183,9 @@ const Dashboard = () => {
                     <span>{error}</span>
                 </div>
             )}
+
+            {/* V14.3.1: Painel de Alertas de Anomalias - Monitoramento do Sistema */}
+            {!isCliente && <ScreenAlertsPanel terminals={terminals} />}
 
             {/* Welcome Hero */}
             <div className="bg-gradient-premium rounded-[2.5rem] p-10 md:p-12 text-white shadow-2xl relative overflow-hidden">
@@ -189,6 +249,40 @@ const Dashboard = () => {
                         ))}
                         {campaigns.length === 0 && <p className="text-center py-6 text-slate-300 italic">Nenhuma atividade registrada.</p>}
                     </div>
+
+                    {isCliente && terminals.length > 0 && (
+                        <div className="mt-8 pt-8 border-t border-slate-100">
+                            <h3 className="text-lg font-black text-slate-800 Outfit mb-4 flex items-center gap-2">
+                                <Monitor className="w-5 h-5 text-indigo-600" /> Monitoramento Live
+                            </h3>
+                            <div className="space-y-6">
+                                {[...new Set(terminals.map(t => t.group || 'Default'))].sort().map(groupName => (
+                                    <div key={groupName} className="space-y-2">
+                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 pl-1">
+                                            <Users className="w-3 h-3" /> {groupName}
+                                        </h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            {terminals.filter(t => (t.group || 'Default') === groupName).map(t => {
+                                                const lastSeenMs = t.lastSeen?.seconds ? t.lastSeen.seconds * 1000 : new Date(t.lastSeen).getTime();
+                                                const isOnline = Date.now() - lastSeenMs < 60000;
+                                                return (
+                                                    <div key={t.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 group hover:border-indigo-200 transition-all">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-2 h-2 rounded-full ${isOnline ? (t.status === 'standby' ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-slate-300'}`} />
+                                                            <span className="text-xs font-bold text-slate-700">{t.name}</span>
+                                                        </div>
+                                                        <span className="text-[9px] font-black uppercase text-slate-400">
+                                                            {isOnline ? (t.status === 'standby' ? 'Em Standby' : 'Transmitindo') : 'Offline'}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="bg-white rounded-[2rem] p-8 border border-slate-100 premium-shadow h-full">
@@ -206,14 +300,26 @@ const Dashboard = () => {
                                 <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                                     <div className="bg-indigo-600 h-full transition-all duration-1000" style={{ width: `${Math.min(perc, 100)}%` }} />
                                 </div>
-                                <p className="text-[10px] text-slate-400 font-bold italic">
+                                <p className="text-[10px] text-slate-400 font-bold italic mb-4">
                                     {used >= quota ? 'Limite atingido! Considere um upgrade.' : 'Sua quota está dentro dos limites do plano.'}
                                 </p>
+                                <button
+                                    onClick={() => setIsCheckoutOpen(true)}
+                                    className="w-full py-3 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all border border-indigo-100"
+                                >
+                                    Gerenciar Plano
+                                </button>
                             </div>
                         );
                     })()}
                 </div>
             </div>
+
+            <CheckoutModal
+                isOpen={isCheckoutOpen}
+                onClose={() => setIsCheckoutOpen(false)}
+                userData={userData}
+            />
         </div>
     );
 };

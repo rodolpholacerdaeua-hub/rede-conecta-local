@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, increment } from 'firebase/firestore';
-import { Users as UsersIcon, Shield, User, Coins, Edit2, Check, Plus } from 'lucide-react';
+import { supabase } from '../supabase';
+import { updateDocument } from '../db';
+import { Users as UsersIcon, Shield, User, Coins, Edit2, Check, Plus, Phone, Trash2, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Users = () => {
@@ -11,22 +11,44 @@ const Users = () => {
     const [editName, setEditName] = useState('');
     const [editTokens, setEditTokens] = useState(0);
 
+    // Estados para adicionar cliente
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [newEmail, setNewEmail] = useState('');
+    const [newName, setNewName] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [adding, setAdding] = useState(false);
+
+    // Estado para modal de exclusão
+    const [deleteModalUser, setDeleteModalUser] = useState(null);
+    const [deleting, setDeleting] = useState(false);
+
     useEffect(() => {
         if (!userData || userData.role !== 'admin') return;
+        let isMounted = true;
 
-        const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        }, (error) => {
-            console.error("Users: Erro ao carregar usuários:", error);
-        });
-        return () => unsubscribe();
+        const loadUsers = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+                if (isMounted) setUsers(data || []);
+            } catch (error) {
+                console.error("Users: Erro ao carregar usuários:", error);
+            }
+        };
+
+        loadUsers();
+        return () => { isMounted = false; };
     }, [userData]);
 
     const toggleRole = async (uid, currentRole) => {
         const newRole = currentRole === 'admin' ? 'cliente' : 'admin';
         try {
-            await updateDoc(doc(db, "users", uid), { role: newRole });
+            await updateDocument('users', uid, { role: newRole });
+            setUsers(prev => prev.map(u => u.id === uid ? { ...u, role: newRole } : u));
         } catch (e) {
             console.error(e);
         }
@@ -34,21 +56,134 @@ const Users = () => {
 
     const handleEditClick = (user) => {
         setEditingUser(user);
-        setEditName(user.displayName || '');
+        setEditName(user.display_name || user.displayName || '');
         setEditTokens(user.tokens || 0);
     };
 
     const handleUpdateUser = async () => {
         try {
-            await updateDoc(doc(db, "users", editingUser.id), {
-                displayName: editName,
+            await updateDocument('users', editingUser.id, {
+                display_name: editName,
                 tokens: Number(editTokens)
             });
+            setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, display_name: editName, tokens: Number(editTokens) } : u));
             setEditingUser(null);
             alert("Usuário atualizado com sucesso!");
         } catch (e) {
             console.error(e);
             alert("Erro ao atualizar usuário");
+        }
+    };
+
+    const handleAddTokens = async (uid, currentTokens) => {
+        try {
+            await updateDocument('users', uid, { tokens: (currentTokens || 0) + 50 });
+            setUsers(prev => prev.map(u => u.id === uid ? { ...u, tokens: (u.tokens || 0) + 50 } : u));
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    // Excluir usuário - abre modal de confirmação
+    const handleDeleteUser = (user) => {
+        console.log('🗑️ [DELETE] Abrindo modal para:', user.email);
+
+        // Não permitir excluir a si mesmo
+        if (user.id === userData?.id) {
+            console.log('🗑️ [DELETE] Bloqueado: tentativa de excluir a si mesmo');
+            alert('Você não pode excluir sua própria conta!');
+            return;
+        }
+
+        setDeleteModalUser(user);
+    };
+
+    // Confirmar exclusão do usuário
+    const confirmDeleteUser = async () => {
+        if (!deleteModalUser) return;
+
+        console.log('🗑️ [DELETE] Confirmado! Executando delete para:', deleteModalUser.email);
+        setDeleting(true);
+
+        try {
+            const { data, error } = await supabase
+                .from('users')
+                .delete()
+                .eq('id', deleteModalUser.id)
+                .select();
+
+            console.log('🗑️ [DELETE] Resultado:', { data, error });
+
+            if (error) throw error;
+
+            setUsers(prev => prev.filter(u => u.id !== deleteModalUser.id));
+            setDeleteModalUser(null);
+            alert('Usuário excluído com sucesso!');
+        } catch (e) {
+            console.error('🗑️ [DELETE] Erro:', e);
+            alert('Erro ao excluir usuário: ' + e.message);
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    // Criar cliente manualmente
+    const handleAddClient = async () => {
+        if (!newEmail || !newName) {
+            alert('Email e nome são obrigatórios');
+            return;
+        }
+
+        setAdding(true);
+        try {
+            // Gerar senha aleatória se não fornecida
+            const password = newPassword || Math.random().toString(36).slice(-8) + 'A1!';
+
+            // Criar usuário no Supabase Auth
+            const { data: authData, error: authError } = await supabase.auth.signUp({
+                email: newEmail,
+                password: password,
+                options: {
+                    data: { name: newName }
+                }
+            });
+
+            if (authError) throw authError;
+
+            if (authData.user) {
+                // Inserir perfil na tabela users
+                const { error: profileError } = await supabase
+                    .from('users')
+                    .insert({
+                        id: authData.user.id,
+                        email: newEmail,
+                        name: newName,
+                        role: 'cliente',
+                        tokens: 0
+                    });
+
+                if (profileError) {
+                    console.error('Erro ao criar perfil:', profileError);
+                } else {
+                    // Recarregar lista de usuários
+                    const { data } = await supabase
+                        .from('users')
+                        .select('*')
+                        .order('created_at', { ascending: false });
+                    setUsers(data || []);
+                }
+            }
+
+            alert(`Cliente criado com sucesso!\n\nEmail: ${newEmail}\nSenha: ${password}\n\nGuarde essas informações!`);
+            setShowAddModal(false);
+            setNewEmail('');
+            setNewName('');
+            setNewPassword('');
+        } catch (e) {
+            console.error('Erro ao criar cliente:', e);
+            alert('Erro ao criar cliente: ' + e.message);
+        } finally {
+            setAdding(false);
         }
     };
 
@@ -63,6 +198,13 @@ const Users = () => {
                     <h2 className="text-2xl font-black text-slate-800 uppercase italic">Gestão de Usuários & Roles</h2>
                     <p className="text-slate-500 font-medium">Controle quem é Admin e quanto saldo cada cliente possui.</p>
                 </div>
+                <button
+                    onClick={() => setShowAddModal(true)}
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-md transition-all active:scale-95"
+                >
+                    <Plus className="w-4 h-4" />
+                    Adicionar Cliente
+                </button>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
@@ -70,8 +212,9 @@ const Users = () => {
                     <thead>
                         <tr className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-100">
                             <th className="px-6 py-4">Usuário</th>
+                            <th className="px-6 py-4">Telefone</th>
                             <th className="px-6 py-4">Papel (Role)</th>
-                            <th className="px-6 py-4">Saldo de Tokens</th>
+                            <th className="px-6 py-4">Saldo de Créditos</th>
                             <th className="px-6 py-4 text-right">Ações de Admin</th>
                         </tr>
                     </thead>
@@ -90,6 +233,21 @@ const Users = () => {
                                     </div>
                                 </td>
                                 <td className="px-6 py-4">
+                                    {u.phone ? (
+                                        <a
+                                            href={`https://wa.me/55${u.phone.replace(/\D/g, '')}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1.5 text-green-600 hover:text-green-700 transition-colors"
+                                        >
+                                            <Phone className="w-3.5 h-3.5" />
+                                            <span className="text-xs font-bold">{u.phone}</span>
+                                        </a>
+                                    ) : (
+                                        <span className="text-slate-300 text-xs italic">Não informado</span>
+                                    )}
+                                </td>
+                                <td className="px-6 py-4">
                                     <button
                                         onClick={() => toggleRole(u.id, u.role)}
                                         className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all ${u.role === 'admin' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'}`}
@@ -101,18 +259,28 @@ const Users = () => {
                                 <td className="px-6 py-4">
                                     <div className="flex items-center gap-2">
                                         <span className="text-amber-600">{u.tokens || 0}🪙</span>
-                                        <button onClick={() => updateDoc(doc(db, "users", u.id), { tokens: increment(50) })} className="p-1 hover:bg-amber-50 rounded text-amber-400 transition-colors">
+                                        <button onClick={() => handleAddTokens(u.id, u.tokens)} className="p-1 hover:bg-amber-50 rounded text-amber-400 transition-colors">
                                             <Plus className="w-3 h-3" />
                                         </button>
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 text-right">
-                                    <button
-                                        onClick={() => handleEditClick(u)}
-                                        className="text-slate-300 hover:text-blue-600 transition-colors p-2 hover:bg-blue-50 rounded-lg"
-                                    >
-                                        <Edit2 className="w-4 h-4" />
-                                    </button>
+                                    <div className="flex items-center justify-end gap-1">
+                                        <button
+                                            onClick={() => handleEditClick(u)}
+                                            className="text-slate-300 hover:text-blue-600 transition-colors p-2 hover:bg-blue-50 rounded-lg"
+                                            title="Editar"
+                                        >
+                                            <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteUser(u)}
+                                            className="text-slate-300 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg"
+                                            title="Excluir"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         ))}
@@ -141,7 +309,7 @@ const Users = () => {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase">Ajustar Tokens (Puro)</label>
+                                <label className="text-[10px] font-black text-slate-400 uppercase">Ajustar Créditos</label>
                                 <div className="relative">
                                     <Coins className="absolute left-3 top-3 w-4 h-4 text-amber-500" />
                                     <input
@@ -165,6 +333,121 @@ const Users = () => {
                                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-black text-sm shadow-md transition-all active:scale-95"
                             >
                                 Salvar Alterações
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Adicionar Cliente */}
+            {showAddModal && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
+                        <div className="p-6 bg-green-600 text-white flex justify-between items-center">
+                            <h3 className="font-black uppercase italic tracking-wider flex items-center gap-2">
+                                <Plus className="w-4 h-4" />
+                                Adicionar Cliente
+                            </h3>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase">Email *</label>
+                                <input
+                                    type="email"
+                                    value={newEmail}
+                                    onChange={(e) => setNewEmail(e.target.value)}
+                                    placeholder="cliente@email.com"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm font-bold focus:ring-2 focus:ring-green-500 outline-none"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase">Nome *</label>
+                                <input
+                                    type="text"
+                                    value={newName}
+                                    onChange={(e) => setNewName(e.target.value)}
+                                    placeholder="Nome do cliente"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm font-bold focus:ring-2 focus:ring-green-500 outline-none"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase">Senha (opcional)</label>
+                                <input
+                                    type="text"
+                                    value={newPassword}
+                                    onChange={(e) => setNewPassword(e.target.value)}
+                                    placeholder="Deixe vazio para gerar automaticamente"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm font-bold focus:ring-2 focus:ring-green-500 outline-none"
+                                />
+                                <p className="text-[10px] text-slate-400">Se não informada, uma senha aleatória será gerada.</p>
+                            </div>
+                        </div>
+                        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+                            <button
+                                onClick={() => { setShowAddModal(false); setNewEmail(''); setNewName(''); setNewPassword(''); }}
+                                className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors"
+                                disabled={adding}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleAddClient}
+                                disabled={adding}
+                                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-black text-sm shadow-md transition-all active:scale-95 disabled:opacity-50"
+                            >
+                                {adding ? 'Criando...' : 'Criar Cliente'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Confirmação de Exclusão */}
+            {deleteModalUser && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
+                        <div className="p-6 bg-red-600 text-white flex justify-between items-center">
+                            <h3 className="font-black uppercase italic tracking-wider flex items-center gap-2">
+                                <AlertTriangle className="w-5 h-5" />
+                                Confirmar Exclusão
+                            </h3>
+                            <button
+                                onClick={() => setDeleteModalUser(null)}
+                                className="hover:bg-white/20 p-1 rounded"
+                                disabled={deleting}
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
+                                <p className="text-sm text-red-800 font-bold mb-2">Você está prestes a excluir:</p>
+                                <p className="text-lg font-black text-red-900">{deleteModalUser.email}</p>
+                            </div>
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                                <p className="font-bold mb-1">⚠️ Esta ação irá:</p>
+                                <ul className="list-disc list-inside space-y-0.5">
+                                    <li>Remover o usuário do sistema</li>
+                                    <li>Excluir campanhas, mídias e dados associados</li>
+                                </ul>
+                                <p className="font-black mt-2 text-red-600">Esta ação NÃO pode ser desfeita!</p>
+                            </div>
+                        </div>
+                        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+                            <button
+                                onClick={() => setDeleteModalUser(null)}
+                                className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors"
+                                disabled={deleting}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={confirmDeleteUser}
+                                disabled={deleting}
+                                className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-black text-sm shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                {deleting ? 'Excluindo...' : 'Excluir Usuário'}
                             </button>
                         </div>
                     </div>

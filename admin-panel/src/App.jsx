@@ -1,7 +1,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Players from './pages/Players';
 import MediaLibrary from './pages/MediaLibrary';
@@ -9,8 +11,10 @@ import Playlists from './pages/Playlists';
 import Campaigns from './pages/Campaigns';
 import Finance from './pages/Finance';
 import Users from './pages/Users';
+import Leads from './pages/Leads';
 import MyPlan from './pages/MyPlan';
 import Player from './pages/Player';
+import PlaybackReports from './pages/PlaybackReports';
 import AIAgentSimulator from './components/AIAgentSimulator';
 import Layout from './components/Layout';
 
@@ -25,6 +29,13 @@ const PrivateRoute = ({ children }) => {
   return children;
 };
 
+// HOC para envolver páginas com Error Boundary
+const SafePage = ({ children }) => (
+  <ErrorBoundary>
+    {children}
+  </ErrorBoundary>
+);
+
 function App() {
   return (
     <Router>
@@ -32,7 +43,8 @@ function App() {
         <AIAgentSimulator />
         <Routes>
           <Route path="/" element={<Login />} />
-          <Route path="/player/:terminalId" element={<Player />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/player/:terminalId" element={<SafePage><Player /></SafePage>} />
 
           {/* Rotas Protegidas */}
           <Route element={
@@ -40,14 +52,16 @@ function App() {
               <Layout />
             </PrivateRoute>
           }>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/players" element={<Players />} />
-            <Route path="/media" element={<MediaLibrary />} />
-            <Route path="/campaigns" element={<Campaigns />} />
-            <Route path="/playlists" element={<Playlists />} />
-            <Route path="/finance" element={<Finance />} />
-            <Route path="/users" element={<Users />} />
-            <Route path="/my-plan" element={<MyPlan />} />
+            <Route path="/dashboard" element={<SafePage><Dashboard /></SafePage>} />
+            <Route path="/players" element={<SafePage><Players /></SafePage>} />
+            <Route path="/media" element={<SafePage><MediaLibrary /></SafePage>} />
+            <Route path="/campaigns" element={<SafePage><Campaigns /></SafePage>} />
+            <Route path="/playlists" element={<SafePage><Playlists /></SafePage>} />
+            <Route path="/finance" element={<SafePage><Finance /></SafePage>} />
+            <Route path="/users" element={<SafePage><Users /></SafePage>} />
+            <Route path="/leads" element={<SafePage><Leads /></SafePage>} />
+            <Route path="/my-plan" element={<SafePage><MyPlan /></SafePage>} />
+            <Route path="/reports" element={<SafePage><PlaybackReports /></SafePage>} />
             <Route path="/settings" element={<div className="p-4">Configurações (Em breve)</div>} />
           </Route>
 
@@ -60,3 +74,4 @@ function App() {
 }
 
 export default App;
+

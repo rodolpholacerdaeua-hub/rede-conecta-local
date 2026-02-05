@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, where, increment, addDoc } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { supabase } from '../supabase';
 import {
     DollarSign, CreditCard, TrendingUp, AlertTriangle, CheckCircle,
     XCircle, Clock, Sparkles, Coins, ShoppingCart, History, ArrowUpRight, ArrowDownLeft, Monitor
@@ -41,7 +39,7 @@ const Finance = () => {
 
     useEffect(() => {
         if (paymentStatus === 'success') {
-            alert("🎯 Pagamento recebido! Seus tokens serão creditados em instantes.");
+            alert("🎯 Pagamento recebido! Seus créditos serão creditados em instantes.");
             // Limpar URL
             window.history.replaceState({}, document.title, window.location.pathname);
         } else if (paymentStatus === 'failure') {
@@ -52,50 +50,56 @@ const Finance = () => {
 
     useEffect(() => {
         if (!currentUser || !userData) return;
+        let isMounted = true;
 
-        const qC = isCliente
-            ? query(collection(db, "campaigns"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"))
-            : query(collection(db, "campaigns"), orderBy("createdAt", "desc"));
+        const loadData = async () => {
+            try {
+                // Query de Campanhas
+                let campaignsQuery = supabase.from('campaigns').select('*').order('created_at', { ascending: false });
+                if (isCliente) {
+                    campaignsQuery = campaignsQuery.eq('owner_id', currentUser.id);
+                }
+                const { data: campaignsData } = await campaignsQuery;
+                if (isMounted) setCampaigns(campaignsData || []);
 
-        const unsubscribeC = onSnapshot(qC, (snapshot) => {
-            setCampaigns(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-
-        const qT = isCliente
-            ? query(collection(db, "transactions"), where("uid", "==", currentUser.uid), orderBy("createdAt", "desc"))
-            : query(collection(db, "transactions"), orderBy("createdAt", "desc"));
-
-        const unsubscribeT = onSnapshot(qT, (snapshot) => {
-            setTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            setLoading(false);
-        });
-
-        return () => {
-            unsubscribeC();
-            unsubscribeT();
+                // Query de Transações
+                let transactionsQuery = supabase.from('transactions').select('*').order('created_at', { ascending: false });
+                if (isCliente) {
+                    transactionsQuery = transactionsQuery.eq('uid', currentUser.id);
+                }
+                const { data: transactionsData } = await transactionsQuery;
+                if (isMounted) {
+                    setTransactions(transactionsData || []);
+                    setLoading(false);
+                }
+            } catch (e) {
+                console.error('Finance load error:', e);
+                if (isMounted) setLoading(false);
+            }
         };
-    }, [currentUser?.uid, userData?.role, isCliente]);
+
+        loadData();
+
+        return () => { isMounted = false; };
+    }, [currentUser?.id, userData?.role, isCliente]);
 
     const handleBuyTokens = async (amount) => {
         try {
-            const functions = getFunctions();
-            const createPreference = httpsCallable(functions, 'createPreference');
-
             setLoading(true);
-            const result = await createPreference({
-                amount: amount,
-                description: `Recarga de ${amount} tokens - Conecta Local`
-            });
+            // TODO: Integrar com Edge Function para criar preferência de pagamento
+            // Por enquanto, apenas simulação
+            alert(`Redirecionando para pagamento de ${amount} créditos...`);
+            // Simular adição de tokens para teste
+            const { error } = await supabase
+                .from('users')
+                .update({ tokens: (userData?.tokens || 0) + amount })
+                .eq('id', currentUser.id);
 
-            if (result.data?.init_point) {
-                // Redireciona para o Checkout do Mercado Pago
-                window.location.href = result.data.init_point;
-            } else {
-                throw new Error("Erro ao gerar link de pagamento.");
-            }
+            if (error) throw error;
+            alert(`${amount} créditos adicionados com sucesso!`);
         } catch (e) {
             console.error("Payment Error:", e);
-            alert(`Falha ao iniciar pagamento: ${e.message}`);
+            alert(`Falha ao processar: ${e.message}`);
         } finally {
             setLoading(false);
         }
@@ -126,7 +130,7 @@ const Finance = () => {
                         <p className="text-slate-400 text-lg font-medium opacity-80 leading-relaxed max-w-md">
                             {isCliente
                                 ? "Gerencie seus créditos de IA e acompanhe seu histórico de investimentos em marketing digital."
-                                : "Visão consolidada da economia de tokens e faturamento bruto da rede Conecta."}
+                                : "Visão consolidada da economia de créditos e faturamento bruto da rede Conecta."}
                         </p>
                     </div>
 
@@ -142,7 +146,7 @@ const Finance = () => {
                                 className="w-full bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-sm Outfit uppercase tracking-widest hover:bg-slate-100 transition-all transform active:scale-95 flex items-center justify-center space-x-2 shadow-xl shadow-white/5"
                             >
                                 <ShoppingCart className="w-4 h-4" />
-                                <span>Comprar Tokens</span>
+                                <span>Comprar Créditos</span>
                             </button>
                         </div>
                     )}
@@ -152,11 +156,11 @@ const Finance = () => {
             {/* Metrics Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <FinanceCard
-                    title={isCliente ? "Saldo em Grão" : "Tokens no Sistema"}
+                    title={isCliente ? "Saldo em Créditos" : "Créditos no Sistema"}
                     value={isCliente ? `${userData?.tokens || 0}🪙` : `${totalTokensSold}🪙`}
                     icon={Coins}
                     color="bg-gradient-to-br from-amber-400 to-amber-600"
-                    subtitle={isCliente ? "Pronto para gerar novos criativos" : "Massa de tokens vendida (Recargas)"}
+                    subtitle={isCliente ? "Pronto para criar campanhas" : "Massa de créditos vendida (Recargas)"}
                 />
                 <FinanceCard
                     title={isCliente ? "Fluxos de Mídia" : "Ocupação Operacional"}

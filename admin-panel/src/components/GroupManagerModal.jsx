@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, onSnapshot, writeBatch, where, getDocs } from 'firebase/firestore';
+import { supabase } from '../supabase';
+import { createDocument, updateDocument, deleteDocument, fetchCollection } from '../db';
 import { X, Plus, Edit2, Trash2, Save, LayoutGrid, AlertTriangle } from 'lucide-react';
 
 const GroupManagerModal = ({ isOpen, onClose, currentTerminalGroups = [] }) => {
@@ -10,17 +10,37 @@ const GroupManagerModal = ({ isOpen, onClose, currentTerminalGroups = [] }) => {
     const [editName, setEditName] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // 1. Carregar Grupos do Firestore
+    // 1. Carregar Grupos do Supabase
     useEffect(() => {
         if (!isOpen) return;
 
-        const q = query(collection(db, "terminal_groups"), orderBy("name"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const loadedGroups = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setGroups(loadedGroups);
-        }, (err) => console.error("Erro ao carregar grupos:", err));
+        const loadGroups = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('terminal_groups')
+                    .select('*')
+                    .order('name');
 
-        return () => unsubscribe();
+                if (error) throw error;
+                setGroups(data || []);
+            } catch (err) {
+                console.error("Erro ao carregar grupos:", err);
+            }
+        };
+
+        loadGroups();
+
+        // Realtime subscription
+        const channel = supabase
+            .channel('terminal-groups-realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'terminal_groups' }, () => {
+                loadGroups();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, [isOpen]);
 
     // Identificar Grupos Órfãos (Existem nos terminais mas não na coleção)
@@ -41,9 +61,9 @@ const GroupManagerModal = ({ isOpen, onClose, currentTerminalGroups = [] }) => {
                 return;
             }
 
-            await addDoc(collection(db, "terminal_groups"), {
+            await createDocument('terminal_groups', {
                 name: nameToUse.trim(),
-                createdAt: new Date()
+                created_at: new Date().toISOString()
             });
             if (!nameOverride) setNewGroupName('');
         } catch (error) {
@@ -54,7 +74,7 @@ const GroupManagerModal = ({ isOpen, onClose, currentTerminalGroups = [] }) => {
         }
     };
 
-    // 3. Renomear Grupo (Batch Update em Terminais)
+    // 3. Renomear Grupo (Update em grupo e terminais)
     const handleUpdateGroup = async (groupId, oldName) => {
         if (!editName.trim() || editName === oldName) {
             setEditingId(null);
@@ -63,22 +83,22 @@ const GroupManagerModal = ({ isOpen, onClose, currentTerminalGroups = [] }) => {
         setLoading(true);
 
         try {
-            const batch = writeBatch(db);
-
             // Atualiza o doc do grupo
-            const groupRef = doc(db, "terminal_groups", groupId);
-            batch.update(groupRef, { name: editName.trim() });
+            await updateDocument('terminal_groups', groupId, { name: editName.trim() });
 
-            // Busca terminais com o nome antigo
-            const terminalsRef = collection(db, "terminals");
-            const q = query(terminalsRef, where("group", "==", oldName));
-            const snapshot = await getDocs(q);
+            // Busca e atualiza terminais com o nome antigo
+            const { data: terminals } = await supabase
+                .from('terminals')
+                .select('id')
+                .eq('group', oldName);
 
-            snapshot.docs.forEach(termDoc => {
-                batch.update(termDoc.ref, { group: editName.trim() });
-            });
+            if (terminals && terminals.length > 0) {
+                await supabase
+                    .from('terminals')
+                    .update({ group: editName.trim() })
+                    .eq('group', oldName);
+            }
 
-            await batch.commit();
             setEditingId(null);
         } catch (error) {
             console.error("Erro ao renomear grupo:", error);
@@ -98,24 +118,17 @@ const GroupManagerModal = ({ isOpen, onClose, currentTerminalGroups = [] }) => {
         setLoading(true);
 
         try {
-            const batch = writeBatch(db);
-
             // Se não for órfão, remove o doc do banco
             if (!isOrphan && groupId) {
-                const groupRef = doc(db, "terminal_groups", groupId);
-                batch.delete(groupRef);
+                await deleteDocument('terminal_groups', groupId);
             }
 
             // Move terminais vinculados para 'Default'
-            const terminalsRef = collection(db, "terminals");
-            const q = query(terminalsRef, where("group", "==", groupName));
-            const snapshot = await getDocs(q);
+            await supabase
+                .from('terminals')
+                .update({ group: 'Default' })
+                .eq('group', groupName);
 
-            snapshot.docs.forEach(termDoc => {
-                batch.update(termDoc.ref, { group: 'Default' });
-            });
-
-            await batch.commit();
         } catch (error) {
             console.error("Erro ao excluir grupo:", error);
             alert("Erro ao excluir grupo.");

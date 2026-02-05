@@ -10,11 +10,13 @@ export const PLANS = {
         displayName: 'Plano Start',
         quota: 1,
         price: 99.90,
+        validityDays: 30, // Período de veiculação das campanhas
         features: [
-            '1 tela de exibição',
-            'Upload de mídias ilimitado',
-            'Suporte por email',
-            'Relatórios básicos'
+            '1 tela de exibição ativa',
+            '1 upload de vídeo/mês (renovável)',
+            'Campanhas com 30 dias de veiculação',
+            'Relatórios Proof-of-Play (POP)',
+            'Monitoramento Operacional Live'
         ]
     },
     business: {
@@ -23,9 +25,11 @@ export const PLANS = {
         displayName: 'Plano Business',
         quota: 3,
         price: 249.90,
+        validityDays: 60, // Período de veiculação das campanhas
         features: [
             '3 telas de exibição',
             'Upload de mídias ilimitado',
+            'Campanhas com 60 dias de veiculação',
             'Suporte prioritário',
             'Relatórios avançados',
             'Agendamento de campanhas'
@@ -37,9 +41,11 @@ export const PLANS = {
         displayName: 'Plano Premium',
         quota: 5,
         price: 399.90,
+        validityDays: 90, // Período de veiculação das campanhas
         features: [
             '5 telas de exibição',
             'Upload de mídias ilimitado',
+            'Campanhas com 90 dias de veiculação',
             'Suporte 24/7',
             'Relatórios completos',
             'Agendamento de campanhas',
@@ -52,9 +58,11 @@ export const PLANS = {
         displayName: 'Plano Enterprise',
         quota: 10,
         price: 699.90,
+        validityDays: 180, // Período de veiculação das campanhas
         features: [
             '10 telas de exibição',
             'Upload de mídias ilimitado',
+            'Campanhas com 180 dias de veiculação',
             'Suporte dedicado 24/7',
             'Relatórios personalizados',
             'Agendamento avançado',
@@ -69,8 +77,10 @@ export const PLANS = {
         displayName: 'Rede Ilimitada',
         quota: Infinity,
         price: 0,
+        validityDays: 365, // Admin/unlimited = 1 ano
         features: [
             'Telas ilimitadas',
+            'Campanhas com 365 dias de veiculação',
             'Todos os recursos',
             'Apenas para administradores'
         ]
@@ -84,6 +94,41 @@ export const PLANS = {
  */
 export function getPlanQuota(plan) {
     return PLANS[plan]?.quota || 1;
+}
+
+/**
+ * Retorna o período de veiculação de campanhas do plano (em dias)
+ * @param {string} plan - ID do plano
+ * @returns {number} Dias de veiculação
+ */
+export function getPlanValidityDays(plan) {
+    return PLANS[plan]?.validityDays || 30;
+}
+
+/**
+ * Retorna a quota efetiva considerando o role do usuário
+ * Admin sempre tem acesso ilimitado independente do plano
+ * @param {object} userData - Dados do usuário (com role e plan)
+ * @returns {number} Número de telas permitidas (Infinity para admin)
+ */
+export function getEffectivePlanQuota(userData) {
+    if (!userData) return 1;
+
+    // Admin sempre tem quota ilimitada
+    if (userData.role === 'admin') {
+        return Infinity;
+    }
+
+    return PLANS[userData.plan]?.quota || 1;
+}
+
+/**
+ * Verifica se o usuário é admin (helper para uso em componentes)
+ * @param {object} userData - Dados do usuário
+ * @returns {boolean} True se for admin
+ */
+export function isAdmin(userData) {
+    return userData?.role === 'admin';
 }
 
 /**
@@ -225,7 +270,7 @@ export function getPlanStatus(planExpiresAt) {
 export function calculateUsedScreens(campaigns) {
     if (!Array.isArray(campaigns)) return 0;
     return campaigns
-        .filter(c => c && c.is_active)
+        .filter(c => c && c.moderation_status === 'approved')
         .reduce((acc, c) => acc + (Number(c.screensQuota) || 0), 0);
 }
 

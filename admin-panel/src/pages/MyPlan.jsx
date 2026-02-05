@@ -1,21 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../firebase';
-import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { supabase } from '../supabase';
 import {
     Package, Calendar, TrendingUp, CheckCircle, XCircle,
-    ArrowRight, Zap, Shield, Crown, Rocket, Star, Info, Layers
+    ArrowRight, Zap, Shield, Crown, Rocket, Star, Info, Layers, AlertTriangle
 } from 'lucide-react';
 import {
     PLANS,
     getPlanName,
     getPlanQuota,
-    getPlanPrice,
-    getPlanFeatures,
     getPlanStatus,
     formatExpirationDate,
     getDaysUntilExpiration,
-    calculateUsedScreens
+    calculateUsedScreens,
+    isAdmin
 } from '../utils/planHelpers';
 
 const PlanCard = ({ plan, currentPlan, onSelect }) => {
@@ -28,16 +26,25 @@ const PlanCard = ({ plan, currentPlan, onSelect }) => {
         unlimited: Rocket
     };
     const Icon = planIcons[plan.id] || Package;
+    const isComingSoon = plan.id !== 'start' && plan.id !== 'unlimited'; // Bloqueia Business, Premium, Enterprise
 
     return (
         <div className={`relative bg-white rounded-[2.5rem] p-8 transition-all duration-500 border-2 flex flex-col group ${isCurrent
             ? 'border-indigo-600 shadow-2xl shadow-indigo-600/10 scale-[1.02]'
-            : 'border-slate-100 hover:border-indigo-200 hover:shadow-xl'
+            : isComingSoon
+                ? 'border-slate-50 bg-slate-50/30 opacity-60 grayscale-[0.5]'
+                : 'border-slate-100 hover:border-indigo-200 hover:shadow-xl shadow-sm'
             }`}>
 
             {isCurrent && (
                 <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-indigo-600 text-white text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-[0.2em] Outfit shadow-lg">
                     Seu Plano Ativo
+                </div>
+            )}
+
+            {isComingSoon && !isCurrent && (
+                <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-[0.2em] Outfit shadow-lg">
+                    Em Breve
                 </div>
             )}
 
@@ -68,14 +75,16 @@ const PlanCard = ({ plan, currentPlan, onSelect }) => {
 
             <button
                 onClick={() => onSelect(plan.id)}
-                disabled={isCurrent}
+                disabled={isCurrent || isComingSoon}
                 className={`w-full py-4 rounded-2xl font-black text-xs Outfit uppercase tracking-[0.2em] transition-all duration-300 flex items-center justify-center gap-2 ${isCurrent
                     ? 'bg-slate-100 text-slate-400 cursor-default'
-                    : 'bg-slate-900 text-white hover:bg-black hover:translate-y-[-2px] shadow-xl shadow-slate-900/10'
+                    : isComingSoon
+                        ? 'bg-slate-50 text-slate-300 cursor-not-allowed border-dashed border-2 border-slate-200'
+                        : 'bg-slate-900 text-white hover:bg-black hover:translate-y-[-2px] shadow-xl shadow-slate-900/10'
                     }`}
             >
-                {isCurrent ? 'Configurado' : 'Fazer Upgrade'}
-                {!isCurrent && <ArrowRight className="w-4 h-4" />}
+                {isCurrent ? 'Configurado' : isComingSoon ? 'Expansão Futura' : 'Fazer Upgrade'}
+                {!isCurrent && !isComingSoon && <ArrowRight className="w-4 h-4" />}
             </button>
         </div>
     );
@@ -88,23 +97,30 @@ const MyPlan = () => {
 
     useEffect(() => {
         if (!currentUser) return;
+        let isMounted = true;
 
-        const q = query(
-            collection(db, "campaigns"),
-            where("ownerId", "==", currentUser.uid),
-            orderBy("createdAt", "desc")
-        );
+        const loadCampaigns = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('campaigns')
+                    .select('*')
+                    .eq('owner_id', currentUser.id)
+                    .order('created_at', { ascending: false });
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setCampaigns(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            setLoading(false);
-        }, (error) => {
-            console.error(error);
-            setLoading(false);
-        });
+                if (error) throw error;
+                if (isMounted) {
+                    setCampaigns(data || []);
+                    setLoading(false);
+                }
+            } catch (error) {
+                console.error(error);
+                if (isMounted) setLoading(false);
+            }
+        };
 
-        return () => unsubscribe();
-    }, [currentUser?.uid]);
+        loadCampaigns();
+        return () => { isMounted = false; };
+    }, [currentUser?.id]);
 
     if (loading || !userData || !userData.plan) {
         return (
@@ -133,12 +149,12 @@ const MyPlan = () => {
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-slate-200/60">
                 <div>
                     <div className="flex items-center space-x-2 mb-2">
-                        <Shield className="w-5 h-5 text-indigo-600" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-500 Outfit">Subscription & Quota</span>
+                        <Rocket className="w-5 h-5 text-indigo-600" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-500 Outfit">MVP Pilot Flow</span>
                     </div>
-                    <h2 className="text-4xl font-black text-slate-800 Outfit tracking-tight leading-none">Meu Plano</h2>
+                    <h2 className="text-4xl font-black text-slate-800 Outfit tracking-tight leading-none">Gestão do Piloto</h2>
                     <p className="text-sm font-bold text-slate-400 mt-2 italic flex items-center gap-2">
-                        Gerencie seu nível de acesso e monitoramento de recursos
+                        Validação de rede em campo (Contexto: Food Truck / Unidade Única)
                     </p>
                 </div>
             </div>
@@ -247,7 +263,7 @@ const MyPlan = () => {
                         </div>
                         <div className="flex items-start space-x-3 group">
                             <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 mt-2 flex-shrink-0 transition-transform group-hover:scale-150 duration-300" />
-                            <p className="text-xs font-bold text-slate-600 leading-relaxed italic">Renovação automática vinculada ao token wallet (se habilitado).</p>
+                            <p className="text-xs font-bold text-slate-600 leading-relaxed italic">Renovação automática vinculada à carteira de créditos (se habilitado).</p>
                         </div>
                         <div className="flex items-start space-x-3 group">
                             <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 mt-2 flex-shrink-0 transition-transform group-hover:scale-150 duration-300" />

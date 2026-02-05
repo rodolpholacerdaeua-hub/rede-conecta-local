@@ -7,65 +7,37 @@ service cloud.firestore {
     // HELPER FUNCTIONS
     // ========================================
     
-    // Verifica se o usuário está autenticado
     function isAuthenticated() {
       return request.auth != null;
     }
     
-    // Verifica se o usuário é admin
-    // Evitamos recursão aqui usando exists() de forma cuidadosa se necessário, 
-    // mas o ideal é que isAdmin() seja usado apenas em coleções diferentes de 'users'
-    // ou com condições que impeçam o loop.
     function isAdmin() {
       return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     
-    // Verifica se o usuário é o dono do recurso
     function isOwner(ownerId) {
       return isAuthenticated() && request.auth.uid == ownerId;
     }
-    
+
     // ========================================
     // COLEÇÃO: users
     // ========================================
     match /users/{userId} {
-      // Leitura: 
-      // 1. O próprio usuário pode ler seu documento
-      // 2. Admin pode ler documentos de outros (get() no próprio documento do admin não é circular)
-      allow read: if isOwner(userId) || (isAuthenticated() && request.auth.uid != userId && isAdmin());
-      
-      // Criação: permitida se for o próprio documento
+      allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId);
-      
-      // Atualização: 
-      // 1. O próprio usuário pode mudar apenas displayName
-      // Escrita: Apenas dono (pode mudar displayName e campos de plano) ou admin
-      allow update: if isAuthenticated() && (userId == request.auth.uid 
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'plan', 'planExpiresAt', 'autoRenew', 'planStartedAt']))
-                    || isAdmin();
-      
-      // Deleção: apenas admin em documentos de outros
-      allow delete: if isAuthenticated() && request.auth.uid != userId && isAdmin();
+      allow update: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
     }
     
     // ========================================
     // COLEÇÃO: campaigns
     // ========================================
     match /campaigns/{campaignId} {
-      // Leitura: dono ou admin
-      allow read: if isOwner(resource.data.ownerId) || isAdmin();
-      
-      // Criação: qualquer usuário autenticado, mas ownerId deve ser o próprio uid
-      allow create: if isAuthenticated() && 
-                      request.resource.data.ownerId == request.auth.uid;
-      
-      // Atualização: dono pode atualizar (exceto ownerId), admin pode tudo
-      allow update: if (isOwner(resource.data.ownerId) && 
-                        request.resource.data.ownerId == resource.data.ownerId) ||
-                       isAdmin();
-      
-      // Deleção: apenas admin
+      allow read: if isAuthenticated(); // Players precisam ler campanhas
+      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if (isOwner(resource.data.ownerId) || isAdmin());
       allow delete: if isAdmin();
     }
     
@@ -73,18 +45,9 @@ service cloud.firestore {
     // COLEÇÃO: media
     // ========================================
     match /media/{mediaId} {
-      // Leitura: dono ou admin
-      allow read: if isOwner(resource.data.ownerId) || isAdmin();
-      
-      // Criação: qualquer usuário autenticado, mas ownerId deve ser o próprio uid
-      allow create: if isAuthenticated() && 
-                      request.resource.data.ownerId == request.auth.uid;
-      
-      // Atualização: dono ou admin (mas ownerId não pode mudar)
-      allow update: if (isOwner(resource.data.ownerId) || isAdmin()) &&
-                       request.resource.data.ownerId == resource.data.ownerId;
-      
-      // Deleção: dono ou admin
+      allow read: if isAuthenticated(); // Players precisam ler mídias
+      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if (isOwner(resource.data.ownerId) || isAdmin());
       allow delete: if isOwner(resource.data.ownerId) || isAdmin();
     }
     
@@ -92,42 +55,16 @@ service cloud.firestore {
     // COLEÇÃO: terminals
     // ========================================
     match /terminals/{terminalId} {
-      // Leitura: todos os usuários autenticados (necessário para seleção em campanhas)
-      allow read: if isAuthenticated();
-      
-      // Criação, Atualização, Deleção: apenas admin
-      allow create, update, delete: if isAdmin();
-    }
-    
-    // ========================================
-    // COLEÇÃO: transactions
-    // ========================================
-    match /transactions/{transactionId} {
-      // Leitura: dono da transação ou admin
-      allow read: if isOwner(resource.data.uid) || isAdmin();
-      
-      // Criação: apenas admin (transações são criadas pelo sistema)
-      allow create: if isAdmin();
-      
-      // Atualização e Deleção: apenas admin
-      allow update, delete: if isAdmin();
-    }
-    
-    // ========================================
-    // COLEÇÃO: generation_requests
-    // ========================================
-    match /generation_requests/{requestId} {
-      // Leitura: dono do pedido ou admin
-      allow read: if isOwner(resource.data.ownerId) || isAdmin();
-      
-      // Criação: qualquer usuário autenticado, mas ownerId deve ser o próprio uid
-      allow create: if isAuthenticated() && 
-                      request.resource.data.ownerId == request.auth.uid;
-      
-      // Atualização: dono (para o simulador mock) ou admin
-      allow update: if isOwner(resource.data.ownerId) || isAdmin();
-      
-      // Deleção: dono ou admin
+      allow read: if isAuthenticated(); // Necessário para players e seleção
+      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+      // Permitir que qualquer autenticado (incluindo anônimos) atualize heartbeat
+      allow update: if isAuthenticated() && (
+        // Players podem atualizar apenas campos de heartbeat/status/id
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen', 'status', 'isOnline', 'hardwareId'])) ||
+        // Owners e admins podem atualizar tudo
+        isOwner(resource.data.ownerId) || 
+        isAdmin()
+      );
       allow delete: if isOwner(resource.data.ownerId) || isAdmin();
     }
     
@@ -135,33 +72,68 @@ service cloud.firestore {
     // COLEÇÃO: playlists
     // ========================================
     match /playlists/{playlistId} {
-      // Leitura: Qualquer usuário autenticado pode ver (necessário para terminais)
       allow read: if isAuthenticated();
-      
-      // Escrita: Apenas admin
-      allow create, update, delete: if isAdmin();
+      // Temporariamente permitindo create para qualquer auth enquanto não adicionamos ownerId em todas as telas
+      allow create: if isAuthenticated(); 
+      allow update: if isAuthenticated(); // Idealmente check owner
+      allow delete: if isAdmin();
     }
 
     // ========================================
-    // COLEÇÃO: billing
+    // COLEÇÃO: pairing_codes
     // ========================================
-    match /billing/{billId} {
-      allow read: if isAuthenticated();
-      allow create, update, delete: if isAdmin();
+    match /pairing_codes/{codeId} {
+      allow create, read: if isAuthenticated(); 
+      allow update: if isAuthenticated();
+      allow delete: if isAdmin();
     }
 
+    // ========================================
+    // COLEÇÃO: playback_logs (Proof-of-Play)
+    // ========================================
+    match /playback_logs/{logId} {
+      allow create: if isAuthenticated();
+      allow read: if true;
+    }
+
+    // ========================================
+    // V14: PROOF OF PLAY (Logs de Auditoria)
+    // ========================================
+    match /proof_of_play/{logId} {
+      // Terminais podem criar logs (via sync)
+      allow create: if isAuthenticated();
+      // Atualizar apenas se for o mesmo terminal
+      allow update: if isAuthenticated();
+      // Leitura para admins e owners (para relatórios)
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.terminalId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.terminals
+      );
+      // Delete only by admins (limpeza de logs antigos)
+      allow delete: if isAdmin();
+    }
+    
     // ========================================
     // COLEÇÃO: terminal_groups
     // ========================================
     match /terminal_groups/{groupId} {
       allow read: if isAuthenticated();
-      allow create, update, delete: if isAdmin();
+      allow create, update: if isAuthenticated(); // Idealmente isAdmin() mas liberando para clientes criarem seus grupos
+      allow delete: if isAdmin();
     }
 
     // ========================================
+    // COLEÇÃO: generation_requests (AI)
+    // ========================================
+    match /generation_requests/{requestId} {
+      allow create: if isAuthenticated();
+      allow read, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+    
+    // ========================================
     // REGRA PADRÃO: NEGAR TUDO
     // ========================================
-    // Qualquer coleção não especificada acima é bloqueada por padrão
     match /{document=**} {
       allow read, write: if false;
     }

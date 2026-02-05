@@ -1,11 +1,11 @@
 import React, { useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, onSnapshot, query, where, doc, updateDoc, addDoc } from 'firebase/firestore';
+import { supabase } from '../supabase';
+import { updateDocument, createDocument } from '../db';
 import { useAuth } from '../contexts/AuthContext';
 
 /**
  * AIAgentSimulator - Background component that mocks the AI Video Generation process.
- * In a real production environment, this would be a Cloud Function or a microservice.
+ * In a real production environment, this would be an Edge Function or a microservice.
  */
 const AIAgentSimulator = () => {
     const auth = useAuth();
@@ -26,110 +26,128 @@ const AIAgentSimulator = () => {
             timeouts.current = [];
         };
 
-        const q = userData.role === 'admin'
-            ? query(collection(db, "generation_requests"), where("status", "==", "pending"))
-            : query(collection(db, "generation_requests"), where("ownerId", "==", currentUser.uid), where("status", "==", "pending"));
+        const loadPendingRequests = async () => {
+            try {
+                let query = supabase
+                    .from('generation_requests')
+                    .select('*')
+                    .eq('status', 'pending');
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            snapshot.docs.forEach((requestDoc) => {
-                if (processingRequests.current.has(requestDoc.id)) return;
+                if (userData.role !== 'admin') {
+                    query = query.eq('owner_id', currentUser.id);
+                }
 
-                const request = requestDoc.data();
-                processingRequests.current.add(requestDoc.id);
+                const { data, error } = await query;
+                if (error) throw error;
 
-                const processRequest = async () => {
-                    const isRefinement = request.type === 'refinement';
-                    console.log(`🤖 IA Agent: Iniciando ${isRefinement ? 'refinamento' : 'criação'}: ${request.campaignName}`);
+                (data || []).forEach((request) => processRequest(request));
+            } catch (error) {
+                console.error("AIAgentSimulator: Erro ao carregar pedidos:", error);
+            }
+        };
 
+        const processRequest = async (request) => {
+            if (processingRequests.current.has(request.id)) return;
+            processingRequests.current.add(request.id);
+
+            const isRefinement = request.type === 'refinement';
+            console.log(`🤖 IA Agent: Iniciando ${isRefinement ? 'refinamento' : 'criação'}: ${request.campaign_name}`);
+
+            try {
+                await updateDocument('generation_requests', request.id, {
+                    status: 'processing',
+                    progress: 10
+                });
+
+                const t1 = setTimeout(async () => {
                     try {
-                        await updateDoc(doc(db, "generation_requests", requestDoc.id), {
-                            status: 'processing',
-                            progress: 10
-                        });
+                        await updateDocument('generation_requests', request.id, { progress: 60 });
 
-                        const t1 = setTimeout(async () => {
+                        const t2 = setTimeout(async () => {
                             try {
-                                await updateDoc(doc(db, "generation_requests", requestDoc.id), { progress: 60 });
+                                const hMediaId = await createDocument('media', {
+                                    name: `AI_GEN_H_${request.campaign_name}`,
+                                    url: '/mock-ads/burger_king_ad_h.png',
+                                    type: 'image',
+                                    orientation: 'horizontal',
+                                    created_at: new Date().toISOString(),
+                                    is_ai_generated: true,
+                                    owner_id: request.owner_id || currentUser.id
+                                });
 
-                                const t2 = setTimeout(async () => {
-                                    try {
-                                        const hMediaRef = await addDoc(collection(db, "media"), {
-                                            name: `AI_GEN_H_${request.campaignName}`,
-                                            url: '/mock-ads/burger_king_ad_h.png',
-                                            type: 'image',
-                                            orientation: 'horizontal',
-                                            createdAt: new Date(),
-                                            isAIGenerated: true,
-                                            ownerId: request.ownerId || currentUser.uid
-                                        });
+                                const vMediaId = await createDocument('media', {
+                                    name: `AI_GEN_V_${request.campaign_name}`,
+                                    url: '/mock-ads/burger_king_ad_v.png',
+                                    type: 'image',
+                                    orientation: 'vertical',
+                                    created_at: new Date().toISOString(),
+                                    is_ai_generated: true,
+                                    owner_id: request.owner_id || currentUser.id
+                                });
 
-                                        const vMediaRef = await addDoc(collection(db, "media"), {
-                                            name: `AI_GEN_V_${request.campaignName}`,
-                                            url: '/mock-ads/burger_king_ad_v.png',
-                                            type: 'image',
-                                            orientation: 'vertical',
-                                            createdAt: new Date(),
-                                            isAIGenerated: true,
-                                            ownerId: request.ownerId || currentUser.uid
-                                        });
+                                await updateDocument('campaigns', request.campaign_id, {
+                                    name: request.campaign_name,
+                                    h_media_id: hMediaId,
+                                    v_media_id: vMediaId,
+                                    is_ai_generating: false,
+                                    ai_creation_fee: 49.90
+                                });
 
-                                        await updateDoc(doc(db, "campaigns", request.campaignId), {
-                                            name: request.campaignName,
-                                            hMediaId: hMediaRef.id,
-                                            vMediaId: vMediaRef.id,
-                                            isAIGenerating: false,
-                                            ai_creation_fee: 49.90
-                                        });
+                                if (!isRefinement) {
+                                    await createDocument('billing', {
+                                        campaign_id: request.campaign_id,
+                                        campaign_name: request.campaign_name,
+                                        amount: 49.90,
+                                        type: 'creation_fee',
+                                        created_at: new Date().toISOString(),
+                                        status: 'completed'
+                                    });
+                                }
 
-                                        if (!isRefinement) {
-                                            await addDoc(collection(db, "billing"), {
-                                                campaignId: request.campaignId,
-                                                campaignName: request.campaignName,
-                                                amount: 49.90,
-                                                type: 'creation_fee',
-                                                createdAt: new Date(),
-                                                status: 'completed'
-                                            });
-                                        }
+                                await updateDocument('generation_requests', request.id, {
+                                    status: 'completed',
+                                    progress: 100,
+                                    completed_at: new Date().toISOString()
+                                });
 
-                                        await updateDoc(doc(db, "generation_requests", requestDoc.id), {
-                                            status: 'completed',
-                                            progress: 100,
-                                            completedAt: new Date()
-                                        });
-
-                                        console.log(`🤖 IA Agent: Entregue - ${request.campaignName}`);
-                                        processingRequests.current.delete(requestDoc.id);
-                                    } catch (err) {
-                                        console.error("IA Agent Error (Final):", err);
-                                        processingRequests.current.delete(requestDoc.id);
-                                    }
-                                }, 5000);
-                                timeouts.current.push(t2);
+                                console.log(`🤖 IA Agent: Entregue - ${request.campaign_name}`);
+                                processingRequests.current.delete(request.id);
                             } catch (err) {
-                                console.error("IA Agent Error (Progress):", err);
-                                processingRequests.current.delete(requestDoc.id);
+                                console.error("IA Agent Error (Final):", err);
+                                processingRequests.current.delete(request.id);
                             }
-                        }, 3000);
-                        timeouts.current.push(t1);
-
+                        }, 5000);
+                        timeouts.current.push(t2);
                     } catch (err) {
-                        console.error("IA Agent Error (Start):", err);
-                        processingRequests.current.delete(requestDoc.id);
+                        console.error("IA Agent Error (Progress):", err);
+                        processingRequests.current.delete(request.id);
                     }
-                };
+                }, 3000);
+                timeouts.current.push(t1);
 
-                processRequest();
-            });
-        }, (error) => {
-            console.error("AIAgentSimulator: Erro ao monitorar pedidos:", error);
-        });
+            } catch (err) {
+                console.error("IA Agent Error (Start):", err);
+                processingRequests.current.delete(request.id);
+            }
+        };
+
+        loadPendingRequests();
+
+        // Subscribe to new pending requests
+        const channel = supabase
+            .channel('generation-requests-realtime')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'generation_requests' }, (payload) => {
+                if (payload.new.status === 'pending') {
+                    processRequest(payload.new);
+                }
+            })
+            .subscribe();
 
         return () => {
-            unsubscribe();
+            supabase.removeChannel(channel);
             clearAllTimeouts();
         };
-    }, [currentUser?.uid, userData?.role]);
+    }, [currentUser?.id, userData?.role]);
 
     return null;
 };

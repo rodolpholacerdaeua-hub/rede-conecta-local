@@ -1,0 +1,54 @@
+{
+    "name": "player-windows",
+    "version": "16.0.0",
+    "description": "Rede Conecta - Digital Signage Player for Windows",
+    "main": "electron/main.js",
+    "scripts": {
+        "dev": "vite --port 5180",
+        "build": "vite build",
+        "electron:dev": "concurrently -k \"vite --port 5180\" \"node -e \\\"setTimeout(()=>require('child_process').spawn(require('electron'),['.']),3000)\\\"\"",
+        "electron:build": "vite build && electron-builder",
+        "preview": "vite preview"
+    },
+    "author": "Antigravity",
+    "license": "MIT",
+    "dependencies": {
+        "@supabase/supabase-js": "^2.49.1",
+        "electron-updater": "^6.3.9",
+        "lucide-react": "^0.511.0",
+        "react": "^19.1.0",
+        "react-dom": "^19.1.0"
+    },
+    "devDependencies": {
+        "@types/react": "^19.1.0",
+        "@types/react-dom": "^19.1.0",
+        "@vitejs/plugin-react": "^4.5.0",
+        "concurrently": "^9.1.2",
+        "electron": "^35.1.5",
+        "electron-builder": "^26.0.12",
+        "vite": "^7.0.0"
+    },
+    "build": {
+        "appId": "com.antigravity.redeconecta.player",
+        "productName": "Rede Conecta Player",
+        "directories": {
+            "output": "dist-electron"
+        },
+        "publish": {
+            "provider": "github",
+            "owner": "rodolpholacerdaeua-hub",
+            "repo": "rede-conecta-local"
+        },
+        "win": {
+            "target": [
+                "nsis"
+            ],
+            "icon": "public/icon.ico"
+        },
+        "nsis": {
+            "oneClick": true,
+            "perMachine": true,
+            "allowToChangeInstallationDirectory": false
+        }
+    }
+}
