@@ -198,9 +198,16 @@ function App() {
         }
       } catch (e) { /* ignore */ }
 
+      // Log de sucesso pós-update (comparação de versão)
+      const lastVersion = localStorage.getItem('last_app_version');
+      if (lastVersion && lastVersion !== CURRENT_VERSION) {
+        remoteLog(terminalId, "INFO", `Sistema Atualizado com Sucesso: ${lastVersion} -> ${CURRENT_VERSION}`);
+      }
+      localStorage.setItem('last_app_version', CURRENT_VERSION);
+
+      // Splash timer
       const timer = setTimeout(() => {
         setShowSplash(false);
-        remoteLog(terminalId, "INFO", "Splash Screen Auto-Dismissed", { duration: splashDuration });
       }, splashDuration);
 
       // Cleanup
@@ -274,6 +281,13 @@ function App() {
     if (!terminalId || !authReady) return;
 
     remoteLog(terminalId, "INFO", "Starting Supabase Listeners");
+
+    // Listener para logs do Main Process (IPC)
+    if (window.electronAPI?.onRemoteLog) {
+      window.electronAPI.onRemoteLog((data) => {
+        remoteLog(terminalId, data.level, data.message, data.metadata);
+      });
+    }
 
     // Fetch inicial
     const fetchTerminal = async () => {
@@ -679,6 +693,7 @@ function App() {
 function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [mpvPlaying, setMpvPlaying] = React.useState(false);
+  const [visible, setVisible] = React.useState(false); // Controle de fade-in
   const currentItem = items[currentIndex];
 
   // Obter URL para exibição (cache local ou remoto)
@@ -706,12 +721,18 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
     return item.url; // mpv pode ler URLs HTTPS também!
   };
 
-  // Função para pular para próximo item
+  // Função para pular para próximo item com fade
   const [playCount, setPlayCount] = React.useState(0);
   const skipToNext = React.useCallback(() => {
-    setPlayCount(c => c + 1);
-    setMpvPlaying(false);
-    setCurrentIndex(prev => (prev + 1) % items.length);
+    console.log('[Player] Transitioning to next...');
+    setVisible(false); // Inicia fade-out
+
+    // Pequeno delay para o fade-out visual
+    setTimeout(() => {
+      setMpvPlaying(false);
+      setCurrentIndex(prev => (prev + 1) % items.length);
+      setPlayCount(c => c + 1);
+    }, 400);
   }, [items.length]);
 
   // Registrar log de exibição quando a mídia muda
@@ -772,16 +793,19 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
     };
   }, [skipToNext, terminalId, currentItem?.name]);
 
-  // Quando o item atual é um vídeo, triggar mpv
+  // Efeito principal de playback e transições
   React.useEffect(() => {
     if (!currentItem || items.length === 0) return;
+
+    // Iniciar animação de fade-in
+    const fadeTimer = setTimeout(() => setVisible(true), 100);
 
     if (isCurrentVideo && window.electronAPI?.playVideo) {
       // === VÍDEO: Usar mpv nativo ===
       const videoPath = getMpvPath(currentItem);
       console.log(`[Player] Triggering mpv for: ${currentItem.name}`);
-      setMpvPlaying(true);
 
+      // NÃO setar mpvPlaying(true) imediatamente para evitar flash preto
       window.electronAPI.playVideo(videoPath).then(result => {
         if (!result.success) {
           console.error('[Player] mpv failed to start:', result.error);
@@ -789,29 +813,38 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
             name: currentItem.name,
             error: result.error
           });
-          // Fallback: pular para próximo após 2s
           setTimeout(skipToNext, 2000);
         }
       });
 
-      // Safety timeout: 60s para vídeos via mpv (mais que o anterior de 30s)
+      // Aguardar 400ms para mostrar a máscara preta (Electron escondendo embaixo do mpv)
+      const mpvMaskTimer = setTimeout(() => setMpvPlaying(true), 400);
+
+      // Safety timeout
       const safetyTimer = setTimeout(() => {
         console.warn(`[Player] mpv safety timeout for "${currentItem.name}" - stopping`);
         window.electronAPI.stopVideo();
         skipToNext();
-      }, 60000);
+      }, 60 * 1000);
 
-      return () => clearTimeout(safetyTimer);
+      return () => {
+        clearTimeout(fadeTimer);
+        clearTimeout(mpvMaskTimer);
+        clearTimeout(safetyTimer);
+      };
     } else {
       // === IMAGEM: Timer normal ===
       setMpvPlaying(false);
       const duration = (currentItem.duration || 10) * 1000;
       const timer = setTimeout(() => {
-        setCurrentIndex(prev => (prev + 1) % items.length);
+        skipToNext();
       }, duration);
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(fadeTimer);
+        clearTimeout(timer);
+      };
     }
-  }, [currentIndex, currentItem, items, isCurrentVideo, playCount]);
+  }, [currentIndex, currentItem, items, isCurrentVideo, playCount, skipToNext]);
 
   if (!currentItem) {
     return <div style={{ color: 'white' }}>Carregando mídia...</div>;
@@ -839,47 +872,36 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
   return (
     <div style={containerStyle}>
       {mpvPlaying ? (
-        // Quando mpv está tocando, mostrar tela preta (mpv está por cima)
-        <div style={{
-          width: '100%',
-          height: '100%',
-          background: '#000',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          {/* Indicador sutil que o vídeo está tocando via mpv */}
-        </div>
-      ) : isCurrentVideo ? (
-        // Fallback: se mpv não disponível, usar <video> tag (melhor que nada)
-        <video
-          key={`${currentItem.id}-${playCount}`}
-          src={mediaUrl}
-          autoPlay
-          muted
-          playsInline
-          style={mediaStyle}
-          onEnded={skipToNext}
-          onError={(e) => {
-            console.warn(`[Player] Video fallback error for ${currentItem.name}`, e.target.error);
-            skipToNext();
-          }}
-        />
+        <div className="mpv-placeholder" />
       ) : (
-        <img
-          key={currentItem.id}
-          src={mediaUrl}
-          alt={currentItem.name}
-          style={mediaStyle}
-          onError={(e) => {
-            console.warn(`[Player] Image error for ${currentItem.name}`);
-            if (mediaUrl.startsWith('media-cache://')) {
-              e.target.src = currentItem.url;
-            } else {
-              skipToNext();
-            }
-          }}
-        />
+        <div className={`media-wrapper ${visible ? 'visible' : ''}`}>
+          {isCurrentVideo ? (
+            <video
+              key={`${currentItem.id}-${playCount}`}
+              src={mediaUrl}
+              autoPlay
+              muted
+              playsInline
+              className="media-item"
+              onEnded={skipToNext}
+              onError={() => skipToNext()}
+            />
+          ) : (
+            <img
+              key={currentItem.id}
+              src={mediaUrl}
+              alt={currentItem.name}
+              className="media-item"
+              onError={(e) => {
+                if (mediaUrl.startsWith('media-cache://')) {
+                  e.target.src = currentItem.url;
+                } else {
+                  skipToNext();
+                }
+              }}
+            />
+          )}
+        </div>
       )}
 
       {/* Mini indicador de progresso */}

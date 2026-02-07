@@ -1,6 +1,6 @@
 {
     "name": "player-windows",
-    "version": "19.0.0",
+    "version": "19.1.1",
     "description": "Rede Conecta - Digital Signage Player for Windows (Offline-First)",
     "main": "electron/main.js",
     "scripts": {
@@ -47,6 +47,7 @@
             "target": [
                 "nsis"
             ],
+            "artifactName": "Rede-Conecta-Player-Setup-${version}.${ext}",
             "icon": "public/icon.ico",
             "extraResources": [
                 {
@@ -61,9 +62,9 @@
         },
         "nsis": {
             "oneClick": true,
-            "perMachine": true,
+            "perMachine": false,
             "allowToChangeInstallationDirectory": false,
-            "allowElevation": true,
+            "allowElevation": false,
             "runAfterFinish": true,
             "deleteAppDataOnUninstall": false
         }

@@ -86,6 +86,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Remover listener de mpv (para cleanup no React)
     removeMpvVideoEndedListener: () => {
         ipcRenderer.removeAllListeners('mpv-video-ended');
+    },
+
+    // Listener para logs do main process
+    onRemoteLog: (callback) => {
+        ipcRenderer.on('remote-log', (event, data) => callback(data));
     }
 });
 

@@ -271,35 +271,57 @@ function setupIpcHandlers() {
     // ============================================
     // MPV PLAYER HANDLERS (Native Video Playback)
     // ============================================
+    let isMpvPlaying = false;
+    let currentPlayId = 0;
+
     ipcMain.handle('mpv-play-video', async (_, filePath) => {
         if (!mpvPlayer) return { success: false, error: 'mpv not initialized' };
+
+        const myPlayId = ++currentPlayId;
+        isMpvPlaying = true;
+
         try {
-            console.log('[IPC] mpv-play-video:', filePath);
-            // Minimizar/esconder janela Electron durante playback mpv
-            // (mpv abre em fullscreen por cima)
+            console.log(`[IPC] mpv-play-video [ID:${myPlayId}]:`, filePath);
+
+            // Telemetria detalhada para o Supabase (via renderer)
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('remote-log', {
+                    level: 'INFO',
+                    message: `Iniciando mpv [ID:${myPlayId}]`,
+                    metadata: { filePath: filePath.substring(0, 50) + '...' }
+                });
+            }
+
             mpvPlayer.play(filePath).then(() => {
-                console.log('[IPC] mpv video ended naturally');
-                // Notificar renderer que o vídeo terminou
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send('mpv-video-ended', { success: true });
-                    // Garantir que a janela Electron volta ao foco
-                    mainWindow.focus();
+                // Só enviar o evento se este ainda for o play atual
+                if (myPlayId === currentPlayId) {
+                    console.log(`[IPC] mpv video [ID:${myPlayId}] ended naturally`);
+                    isMpvPlaying = false;
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('mpv-video-ended', { success: true });
+                        mainWindow.focus();
+                    }
                 }
             }).catch((err) => {
-                console.error('[IPC] mpv video error:', err.message);
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send('mpv-video-ended', { success: false, error: err.message });
-                    mainWindow.focus();
+                if (myPlayId === currentPlayId) {
+                    console.error(`[IPC] mpv video [ID:${myPlayId}] error:`, err.message);
+                    isMpvPlaying = false;
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('mpv-video-ended', { success: false, error: err.message });
+                        mainWindow.focus();
+                    }
                 }
             });
             return { success: true };
         } catch (err) {
+            isMpvPlaying = false;
             console.error('[IPC] mpv play error:', err.message);
             return { success: false, error: err.message };
         }
     });
 
     ipcMain.handle('mpv-stop-video', () => {
+        isMpvPlaying = false;
         if (mpvPlayer) mpvPlayer.stop();
         return { success: true };
     });
@@ -307,6 +329,14 @@ function setupIpcHandlers() {
     ipcMain.handle('mpv-is-available', () => {
         return mpvPlayer ? mpvPlayer.isAvailable() : false;
     });
+
+    // Ponte de logs para o renderer (para telemetria remota)
+    ipcMain.on('remote-log-send', (event, { level, message, metadata }) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('remote-log', { level, message, metadata });
+        }
+    });
+
 }
 
 // ============================================
@@ -463,6 +493,13 @@ app.whenReady().then(async () => {
     } else {
         setInterval(() => {
             if (!mainWindow || mainWindow.isDestroyed()) return;
+
+            // BLINDAGEM: Não roubar o foco se o mpv estiver rodando!
+            // Se o Electron ganhar foco, ele cobre o mpv (mesmo que ambos sejam ontop)
+            if (isMpvPlaying) {
+                console.log('[WATCHDOG] mpv em execução — pulando reforço de foco do Electron');
+                return;
+            }
 
             // Forçar Always on Top
             if (!mainWindow.isAlwaysOnTop()) {

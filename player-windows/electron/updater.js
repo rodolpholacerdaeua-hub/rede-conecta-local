@@ -10,33 +10,44 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 
 // Configuração do auto-updater
-autoUpdater.autoDownload = true;
+autoUpdater.autoDownload = false; // Mudar para manual para permitir Smoke Test pré-download
 autoUpdater.autoInstallOnAppQuit = true;
 
 // Estado do updater
 let updateDownloaded = false;
 let mainWindow = null;
+let lastLoggedError = null;
+let lastErrorTime = 0;
+const ERROR_LOG_DEBOUNCE = 60 * 60 * 1000; // 1 hora
 
 /**
  * Smoke Test — Verifica pré-condições antes de instalar update
  * @returns {{ pass: boolean, checks: Array<{name: string, pass: boolean, detail: string}> }}
  */
-function runPreInstallSmokeTest() {
+function runEnvironmentSmokeTest() {
     const checks = [];
-    const appDir = app.isPackaged ? path.dirname(app.getPath('exe')) : process.cwd();
 
-    // 1. Verificar que mpv.exe existe e é acessível
-    try {
-        const mpvPath = path.join(appDir, 'mpv', 'mpv.exe');
-        const mpvExists = fs.existsSync(mpvPath);
-        checks.push({
-            name: 'mpv.exe',
-            pass: mpvExists,
-            detail: mpvExists ? `Encontrado em ${mpvPath}` : `Não encontrado em ${mpvPath}`
-        });
-    } catch (err) {
-        checks.push({ name: 'mpv.exe', pass: false, detail: `Erro: ${err.message}` });
-    }
+    // Lógica unificada de busca (igual ao mpvPlayer.js)
+    const findMpvBinary = () => {
+        const bundledPaths = [
+            path.join(process.resourcesPath || '', 'mpv', 'mpv.exe'),
+            path.join(path.dirname(app.getPath('exe')), 'mpv', 'mpv.exe'),
+            path.join(process.cwd(), 'mpv', 'mpv.exe'),
+        ];
+        for (const p of bundledPaths) {
+            if (fs.existsSync(p)) return p;
+        }
+        return 'mpv'; // fallback
+    };
+
+    const mpvPath = findMpvBinary();
+    const mpvExists = mpvPath !== 'mpv' && fs.existsSync(mpvPath);
+
+    checks.push({
+        name: 'mpv.exe',
+        pass: mpvExists,
+        detail: mpvExists ? `Encontrado em ${mpvPath}` : `NÃO encontrado nos caminhos de produção/dev`
+    });
 
     // 2. Verificar que o SQLite DB pode ser acessado
     try {
@@ -63,7 +74,8 @@ function runPreInstallSmokeTest() {
 
     // 3. Verificar espaço em disco mínimo (500MB)
     try {
-        const driveLetter = appDir.charAt(0);
+        const exePath = app.getPath('exe');
+        const driveLetter = exePath.charAt(0);
         let freeBytes = null;
 
         try {
@@ -135,6 +147,32 @@ function initAutoUpdater(win) {
 
     autoUpdater.on('update-available', (info) => {
         console.log('[AutoUpdater] Atualização disponível:', info.version);
+
+        // ── Smoke Test PRÉ-DOWNLOAD ────────────────────────────
+        console.log('[AutoUpdater] Executando environment smoke test...');
+        const smokeResult = runEnvironmentSmokeTest();
+
+        if (!smokeResult.pass) {
+            const reasons = smokeResult.checks.filter(c => !c.pass).map(c => c.name).join(', ');
+            console.error(`[AutoUpdater] ❌ Smoke test FALHOU (${reasons}) — Download cancelado para poupar banda.`);
+
+            // Log de ERRO (apenas se for novo ou passou o debounce)
+            logException('ERROR', `Update V${info.version} abortado: Ambiente íntegro (${reasons})`);
+
+            sendToRenderer('update-status', {
+                status: 'smoke-test-failed',
+                version: info.version,
+                reason: reasons
+            });
+            return;
+        }
+
+        // Ambiente OK: Notificar download iminente
+        console.log('[AutoUpdater] ✅ Ambiente OK — Iniciando download...');
+        logException('WARN', `Nova versão detectada: V${info.version}. Iniciando download silencioso.`);
+
+        autoUpdater.downloadUpdate();
+
         sendToRenderer('update-status', {
             status: 'available',
             version: info.version
@@ -142,6 +180,7 @@ function initAutoUpdater(win) {
     });
 
     autoUpdater.on('update-not-available', () => {
+        // Silêncio total: Sem logs no Supabase se estiver atualizado
         console.log('[AutoUpdater] App está atualizado');
         sendToRenderer('update-status', { status: 'up-to-date' });
     });
@@ -158,32 +197,13 @@ function initAutoUpdater(win) {
     autoUpdater.on('update-downloaded', (info) => {
         console.log('[AutoUpdater] Download completo:', info.version);
         updateDownloaded = true;
+
+        logException('INFO', `Update V${info.version} baixado e pronto para instalação.`);
+
         sendToRenderer('update-status', {
             status: 'downloaded',
             version: info.version
         });
-
-        // ── Smoke Test antes de instalar ────────────────────────────
-        console.log('[AutoUpdater] Executando smoke test pré-instalação...');
-        const smokeResult = runPreInstallSmokeTest();
-
-        if (!smokeResult.pass) {
-            const failedChecks = smokeResult.checks.filter(c => !c.pass);
-            const reasons = failedChecks.map(c => `${c.name}: ${c.detail}`).join('; ');
-
-            console.error(`[AutoUpdater] ❌ Smoke test FALHOU — update ABORTADO. Motivos: ${reasons}`);
-            sendToRenderer('update-status', {
-                status: 'smoke-test-failed',
-                version: info.version,
-                reason: reasons,
-                checks: smokeResult.checks
-            });
-
-            // NÃO instalar — app continua rodando na versão atual
-            return;
-        }
-
-        console.log('[AutoUpdater] ✅ Smoke test PASSED — prosseguindo com instalação');
 
         // Em modo kiosk, instalar automaticamente após 5 segundos
         // (o app nunca fecha em modo kiosk, então autoInstallOnAppQuit não funciona)
@@ -199,10 +219,18 @@ function initAutoUpdater(win) {
     });
 
     autoUpdater.on('error', (err) => {
-        console.error('[AutoUpdater] Erro:', err.message);
+        const errorMsg = err.message || 'Erro desconhecido';
+        console.error('[AutoUpdater] Erro:', errorMsg);
+
+        // Log de erro curto no Supabase (com debounce)
+        const errorCode = errorMsg.includes('404') ? 'GITHUB_404' :
+            errorMsg.includes('network') ? 'NET_ERR' : 'UPD_ERR';
+
+        logException('ERROR', `Auto-updater falhou: ${errorCode}`, { detail: errorMsg.substring(0, 100) });
+
         sendToRenderer('update-status', {
             status: 'error',
-            message: err.message
+            message: errorMsg
         });
     });
 
@@ -254,6 +282,33 @@ function sendToRenderer(channel, data) {
  */
 function isUpdateReady() {
     return updateDownloaded;
+}
+
+/**
+ * Envia log por exceção para o Supabase (via bridge no main.js)
+ */
+function logException(level, message, metadata = {}) {
+    const now = Date.now();
+    const isDebounced = level === 'ERROR' &&
+        lastLoggedError === message &&
+        (now - lastErrorTime < ERROR_LOG_DEBOUNCE);
+
+    if (isDebounced) return;
+
+    if (level === 'ERROR') {
+        lastLoggedError = message;
+        lastErrorTime = now;
+    }
+
+    // Emitir evento que o main.js captura e manda pro renderer
+    // (Ponte: updater.js -> main.js -> renderer -> Supabase)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('remote-log', {
+            level,
+            message: `[AutoUpdater] ${message}`,
+            metadata: { ...metadata, updaterVersion: 'v2' }
+        });
+    }
 }
 
 module.exports = {

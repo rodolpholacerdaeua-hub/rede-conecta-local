@@ -277,13 +277,36 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
                             {opStatus.label}
                         </div>
                         <div className="flex items-center gap-1">
-                            <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
-                            <span className={`text-[8px] font-black uppercase tracking-widest ${isOnline ? 'text-emerald-600' : 'text-red-600'}`}>
-                                {isOnline ? 'CONECTADO' : 'OFFLINE'}
-                            </span>
+                            <Zap className="w-2.5 h-2.5 text-indigo-500" />
+                            <span className="text-[8px] font-black uppercase text-indigo-600 tracking-widest">Grade 12 Slots</span>
                         </div>
                     </div>
                 </div>
+
+                {/* Barra de Ocupação da Grade (10 slots locais) */}
+                {(() => {
+                    const activePlaylist = playlists.find(p => p.id === terminal.assigned_playlist_id);
+                    const localSlots = activePlaylist?.slots?.filter((s, i) => s && [2, 3, 4, 5, 6, 8, 9, 10, 11, 12].includes(i)) || [];
+                    const occupiedCount = localSlots.length;
+                    const percentage = Math.round((occupiedCount / 10) * 100);
+
+                    return (
+                        <div className="mb-4 bg-slate-50 border border-slate-100 rounded-lg p-2.5">
+                            <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Ocupação Local</span>
+                                <span className="text-[9px] font-bold text-indigo-600">{occupiedCount}/10 Slots</span>
+                            </div>
+                            <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden flex gap-0.5 p-[1px]">
+                                {Array.from({ length: 10 }).map((_, i) => (
+                                    <div
+                                        key={i}
+                                        className={`flex-1 rounded-full transition-all duration-500 ${i < occupiedCount ? 'bg-indigo-500' : 'bg-slate-300'}`}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })()}
 
                 {/* Simulador de Reprodução (Mini-Player) */}
                 {terminal.isMonitoring && (() => {
@@ -361,20 +384,24 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
                 </div>
 
                 <div className="mt-auto space-y-3">
-                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block flex items-center gap-1">
-                            <Layers className="w-3 h-3" /> Playlist Atribuída
-                        </label>
-                        <select
-                            value={terminal.assigned_playlist_id || ''}
-                            onChange={(e) => onAssignPlaylist(terminal.id, e.target.value)}
-                            className="w-full bg-white border border-slate-200 rounded text-xs p-1.5 outline-none focus:ring-1 focus:ring-blue-500 font-bold text-slate-700"
+                    <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 flex items-center justify-between group relative">
+                        <div>
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 block flex items-center gap-1">
+                                <Layers className="w-3 h-3" /> Grade Ativa
+                            </label>
+                            <p className="text-[11px] font-bold text-slate-700 truncate max-w-[140px]">
+                                {playlists.find(p => p.id === terminal.assigned_playlist_id)?.name || 'Nenhuma (Standby)'}
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                // Redirecionar para editor de playlist ou abrir modal
+                                window.location.hash = `#/playlists?id=${terminal.assigned_playlist_id}`;
+                            }}
+                            className="bg-white border border-slate-200 text-indigo-600 hover:bg-indigo-50 p-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition-all shadow-sm"
                         >
-                            <option value="">Nenhuma (Standby)</option>
-                            {playlists.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                        </select>
+                            Ver Grade
+                        </button>
                     </div>
 
                     <div className="border-t border-slate-100 pt-3 flex justify-between items-center">

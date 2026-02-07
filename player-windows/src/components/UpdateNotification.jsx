@@ -15,7 +15,7 @@ const UpdateNotification = () => {
 
         // Listener para eventos de atualização
         window.electronAPI.onUpdateStatus((data) => {
-            console.log('[Update] Status:', data);
+            console.log('[Update] Status UI:', data.status);
             setUpdateStatus(data);
 
             // Mostrar notificação apenas para status relevantes

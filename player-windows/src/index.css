@@ -417,3 +417,32 @@ body {
     font-size: 1.2rem;
   }
 }
+
+/* ========================================
+   V19.0.2 SEAMLESS TRANSITIONS
+   ======================================== */
+.media-wrapper {
+  opacity: 0;
+  transition: opacity 0.5s ease-in-out;
+  width: 100%;
+  height: 100%;
+}
+
+.media-wrapper.visible {
+  opacity: 1;
+}
+
+.media-item {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mpv-placeholder {
+  width: 100%;
+  height: 100%;
+  background: black;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
