@@ -156,8 +156,7 @@ function initAutoUpdater(win) {
             const reasons = smokeResult.checks.filter(c => !c.pass).map(c => c.name).join(', ');
             console.error(`[AutoUpdater] ❌ Smoke test FALHOU (${reasons}) — Download cancelado para poupar banda.`);
 
-            // Log de ERRO (apenas se for novo ou passou o debounce)
-            logException('ERROR', `Update V${info.version} abortado: Ambiente íntegro (${reasons})`);
+            logException('ERROR', `Update V${info.version} abortado: Ambiente não-íntegro (${reasons})`);
 
             sendToRenderer('update-status', {
                 status: 'smoke-test-failed',
@@ -252,7 +251,7 @@ function checkForUpdates() {
     if (!app.isPackaged) return;
 
     try {
-        autoUpdater.checkForUpdatesAndNotify();
+        autoUpdater.checkForUpdates();
     } catch (err) {
         console.error('[AutoUpdater] Erro ao verificar:', err.message);
     }

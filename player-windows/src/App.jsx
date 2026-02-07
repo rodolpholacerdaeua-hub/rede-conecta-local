@@ -185,8 +185,17 @@ function App() {
   useEffect(() => {
     remoteLog(terminalId, "INFO", "App.jsx Component Mounted", { version: CURRENT_VERSION });
 
+    // Log de sucesso pós-update (comparação de versão)
+    const lastVersion = localStorage.getItem('last_app_version');
+    if (lastVersion && lastVersion !== CURRENT_VERSION) {
+      remoteLog(terminalId, "INFO", `Sistema Atualizado com Sucesso: ${lastVersion} -> ${CURRENT_VERSION}`);
+    }
+    localStorage.setItem('last_app_version', CURRENT_VERSION);
+
     // Verificar se houve boot atrasado — splash rápido de 1s
     let splashDuration = 10000; // padrão 10s
+    let timerId = null;
+
     (async () => {
       try {
         if (window.electronAPI?.getBootInfo) {
@@ -198,21 +207,16 @@ function App() {
         }
       } catch (e) { /* ignore */ }
 
-      // Log de sucesso pós-update (comparação de versão)
-      const lastVersion = localStorage.getItem('last_app_version');
-      if (lastVersion && lastVersion !== CURRENT_VERSION) {
-        remoteLog(terminalId, "INFO", `Sistema Atualizado com Sucesso: ${lastVersion} -> ${CURRENT_VERSION}`);
-      }
-      localStorage.setItem('last_app_version', CURRENT_VERSION);
-
-      // Splash timer
-      const timer = setTimeout(() => {
+      // Splash timer (criado APÓS resolver a duração)
+      timerId = setTimeout(() => {
         setShowSplash(false);
       }, splashDuration);
-
-      // Cleanup
-      return () => clearTimeout(timer);
     })();
+
+    // Cleanup acessível pelo React
+    return () => {
+      if (timerId) clearTimeout(timerId);
+    };
   }, [terminalId]);
 
   // 1. Electron/Native Communication & Hardware ID
