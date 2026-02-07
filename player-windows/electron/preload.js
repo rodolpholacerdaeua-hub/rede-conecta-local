@@ -75,7 +75,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Listener para quando o vídeo do mpv termina
     onMpvVideoEnded: (callback) => {
+        // Remover listeners anteriores para evitar acumulação
+        ipcRenderer.removeAllListeners('mpv-video-ended');
         ipcRenderer.on('mpv-video-ended', (event, data) => callback(data));
+    },
+
+    // Remover listener de mpv (para cleanup no React)
+    removeMpvVideoEndedListener: () => {
+        ipcRenderer.removeAllListeners('mpv-video-ended');
     }
 });
 

@@ -748,10 +748,10 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
     window.electronAPI.onMpvVideoEnded(handleMpvEnded);
 
     // Cleanup: remover listener ao desmontar
-    // Note: Electron IPC listeners don't have removeListener via preload
-    // So we use a flag to ignore stale events
     return () => {
-      // No cleanup needed - handler is replaced on re-mount
+      if (window.electronAPI?.removeMpvVideoEndedListener) {
+        window.electronAPI.removeMpvVideoEndedListener();
+      }
     };
   }, [skipToNext, terminalId, currentItem?.name]);
 
