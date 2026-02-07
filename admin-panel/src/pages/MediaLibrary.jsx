@@ -24,9 +24,9 @@ const MediaCard = ({ file, onDelete, onRegenerate, isAdmin, isLocked }) => {
                 )}
                 {file.type === 'image' && !file.url && <ImageIcon className="w-12 h-12 text-slate-400" />}
 
-                {/* Orientation Badge */}
-                <div className="absolute top-2 left-2 bg-slate-900/60 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
-                    {file.orientation === 'portrait' ? 'Vertical (9:16)' : 'Horizontal (16:9)'}
+                {/* Orientation Badge - Sempre Vertical */}
+                <div className="absolute top-2 left-2 bg-indigo-600/80 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+                    Vertical 9:16
                 </div>
 
                 {/* Validity Badge */}
@@ -87,7 +87,7 @@ const MediaLibrary = () => {
     const [campaigns, setCampaigns] = useState([]); // Campanhas do usuário
     const [uploading, setUploading] = useState(false);
     const [progress, setProgress] = useState(0);
-    const [orientation, setOrientation] = useState('horizontal');
+    // Sistema vertical-only: orientação fixa portrait
 
 
     // Estado para modal de confirmação de exclusão
@@ -293,11 +293,9 @@ const MediaLibrary = () => {
             }
 
             const isVertical = dims.height > dims.width;
-            const detectedOrientation = isVertical ? 'portrait' : 'landscape';
-            const expectedOrientation = orientation === 'vertical' ? 'portrait' : 'landscape';
 
-            if (detectedOrientation !== expectedOrientation) {
-                alert(`❌ ERRO DE PROPORÇÃO: Você selecionou o modo "${orientation.toUpperCase()}", mas o seu arquivo está na "${isVertical ? 'VERTICAL' : 'HORIZONTAL'}". \n\nTroque a chave acima e tente novamente.`);
+            if (!isVertical) {
+                alert(`❌ FORMATO INCORRETO: O sistema aceita apenas mídias no formato VERTICAL (9:16).\n\nSeu arquivo está em formato paisagem. Por favor, use um vídeo ou imagem na orientação retrato (mais alto que largo).`);
                 setUploading(false);
                 resetInput();
                 return;
@@ -339,7 +337,7 @@ const MediaLibrary = () => {
                 name: file.name,
                 url: uploadData.url,
                 type: isVideo ? 'video' : 'image',
-                orientation: detectedOrientation,
+                orientation: 'portrait',
                 storage_path: uploadData.path,
                 file_size: file.size,
                 owner_id: currentUser.id,
@@ -481,19 +479,8 @@ const MediaLibrary = () => {
                     )}
                 </div>
 
-                <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
-                    <button
-                        onClick={() => setOrientation('horizontal')}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${orientation === 'horizontal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                        HORIZONTAL
-                    </button>
-                    <button
-                        onClick={() => setOrientation('vertical')}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${orientation === 'vertical' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                        VERTICAL
-                    </button>
+                <div className="flex items-center bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-200">
+                    <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider">📱 Formato: Vertical 9:16</span>
                 </div>
 
                 <label className={`flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg transition-colors font-medium cursor-pointer ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}>

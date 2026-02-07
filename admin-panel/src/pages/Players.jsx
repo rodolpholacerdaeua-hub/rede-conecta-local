@@ -20,16 +20,9 @@ const MiniPlayerPreview = ({ terminal, activePlaylist, onClose }) => {
     const items = React.useMemo(() => {
         if (!activePlaylist) return [];
         const rawItems = [...(activePlaylist.localItems || []), ...(activePlaylist.globalItems || [])];
-
-        return rawItems.filter(item => {
-            // Se for Mídia Direta (Base), a orientação DEVE bater (se definida)
-            if (item.type === 'media' && item.orientation && terminal.orientation) {
-                return item.orientation === terminal.orientation;
-            }
-            // Campanhas são consideradas compatíveis a princípio (filter late)
-            return true;
-        }).sort((a, b) => (a.sortId || 0) - (b.sortId || 0));
-    }, [activePlaylist, terminal.orientation]);
+        // Sistema vertical-only: sem filtro de orientação
+        return rawItems.sort((a, b) => (a.sortId || 0) - (b.sortId || 0));
+    }, [activePlaylist]);
 
     // Efeito de Rotação e Busca de URL
     useEffect(() => {
@@ -52,7 +45,7 @@ const MiniPlayerPreview = ({ terminal, activePlaylist, onClose }) => {
                     if (currentItem.type === 'campaign') {
                         const campData = await getDocument('campaigns', currentItem.id);
                         if (campData) {
-                            const mediaId = terminal.orientation === 'vertical' ? campData.vMediaId : campData.hMediaId;
+                            const mediaId = campData.vMediaId || campData.hMediaId;
                             if (mediaId) {
                                 const mediaData = await getDocument('media', mediaId);
                                 if (mediaData) {
@@ -73,7 +66,7 @@ const MiniPlayerPreview = ({ terminal, activePlaylist, onClose }) => {
 
                 if (isMounted) {
                     if (!url) {
-                        console.warn(`[SIMULADOR] Pular item: Mídia não encontrada para ${currentItem.name} (${terminal.orientation})`);
+                        console.warn(`[SIMULADOR] Pular item: Mídia não encontrada para ${currentItem.name}`);
                         // Se não achou url, força pular para o próximo imediatamente
                         setCurrentIndex((prev) => (prev + 1) % items.length);
                         setLoading(false);
@@ -107,7 +100,7 @@ const MiniPlayerPreview = ({ terminal, activePlaylist, onClose }) => {
             isMounted = false;
             clearTimeout(timer);
         };
-    }, [currentIndex, items, terminal.orientation]);
+    }, [currentIndex, items]);
 
     if (!activePlaylist || items.length === 0) {
         return (
@@ -126,8 +119,8 @@ const MiniPlayerPreview = ({ terminal, activePlaylist, onClose }) => {
 
     const currentItem = items[currentIndex];
 
-    const isVertical = terminal.orientation === 'vertical';
-    const aspectRatioClass = isVertical ? 'aspect-[9/16]' : 'aspect-video';
+    // Sistema vertical-only: sempre aspecto vertical
+    const aspectRatioClass = 'aspect-[9/16]';
 
     return (
         <div className={`mb-4 bg-slate-900 rounded-xl overflow-hidden border-2 border-indigo-500 shadow-2xl shadow-indigo-500/20 ${aspectRatioClass} relative group flex flex-col transition-all duration-500`}>
@@ -258,20 +251,11 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
                     <div className="flex-1 min-w-0 mr-2">
                         <h4 className="font-bold text-slate-800 flex items-center flex-wrap gap-2">
                             <span className="truncate">{terminal.name || 'Terminal Sem Nome'}</span>
-                            <button
-                                onClick={() => {
-                                    const isVertical = terminal.orientation === 'vertical' || terminal.orientation === 'portrait';
-                                    const newOrientation = isVertical ? 'landscape' : 'portrait';
-                                    onUpdateField(terminal.id, 'orientation', newOrientation);
-                                }}
-                                className={`text-[10px] px-2 py-0.5 rounded font-black uppercase flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 ${terminal.orientation === 'vertical' || terminal.orientation === 'portrait'
-                                        ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
-                                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                    }`}
-                                title="Clique para alternar orientação"
+                            <span
+                                className="text-[10px] px-2 py-0.5 rounded font-black uppercase flex-shrink-0 bg-indigo-100 text-indigo-700"
                             >
-                                {terminal.orientation === 'vertical' || terminal.orientation === 'portrait' ? 'Vertical' : 'Horizontal'}
-                            </button>
+                                Vertical 9:16
+                            </span>
                         </h4>
                         <div className="flex items-center space-x-1 mt-1">
                             <Users className="w-3 h-3 text-slate-400" />
@@ -463,7 +447,7 @@ const Players = () => {
     const [newName, setNewName] = useState('');
     const [newGroup, setNewGroup] = useState('');
     const [pairingCode, setPairingCode] = useState(''); // Estado para o código de pareamento
-    const [orientation, setOrientation] = useState('horizontal');
+    // Sistema vertical-only: orientação fixa portrait
     const [filterGroup, setFilterGroup] = useState('Todos');
     const [isBulkAssign, setIsBulkAssign] = useState(false);
     const [bulkPlaylistId, setBulkPlaylistId] = useState('');
@@ -534,13 +518,30 @@ const Players = () => {
 
         loadData();
 
-        // Configurar realtime para terminais com status callbacks
+        // Configurar realtime para terminais com atualização parcial
         const terminalsChannel = supabase
             .channel('terminals-realtime')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'terminals' }, (payload) => {
-                console.log('[REALTIME] Terminal change:', payload.eventType, payload);
+                console.log('[REALTIME] Terminal change:', payload.eventType, payload.new?.name || payload.old?.id);
                 if (isMounted) {
-                    loadData(); // Recarregar dados
+                    if (payload.eventType === 'UPDATE' && payload.new) {
+                        // Atualização parcial - mais eficiente
+                        setTerminals(prev => prev.map(t =>
+                            t.id === payload.new.id ? { ...t, ...payload.new } : t
+                        ));
+                        console.log('[REALTIME] ✅ Terminal atualizado:', payload.new.name);
+                    } else if (payload.eventType === 'INSERT' && payload.new) {
+                        // Novo terminal - adicionar à lista
+                        setTerminals(prev => [...prev, payload.new]);
+                        console.log('[REALTIME] ➕ Novo terminal:', payload.new.name);
+                    } else if (payload.eventType === 'DELETE' && payload.old) {
+                        // Terminal deletado - remover da lista
+                        setTerminals(prev => prev.filter(t => t.id !== payload.old.id));
+                        console.log('[REALTIME] ➖ Terminal removido:', payload.old.id);
+                    } else {
+                        // Fallback: recarregar tudo
+                        loadData();
+                    }
                 }
             })
             .subscribe((status, err) => {
@@ -586,40 +587,82 @@ const Players = () => {
 
 
     const handleAssignPlaylist = async (terminalId, playlistId) => {
+        // Converter string vazia para null explicitamente
+        const resolvedPlaylistId = playlistId && playlistId.trim() !== '' ? playlistId : null;
+
+        console.log(`[ASSIGN] Terminal: ${terminalId}, Playlist: ${resolvedPlaylistId}`);
+
         try {
-            await updateDocument('terminals', terminalId, { assigned_playlist_id: playlistId || null });
+            // Usar Supabase diretamente para garantir que funciona
+            const { data, error } = await supabase
+                .from('terminals')
+                .update({ assigned_playlist_id: resolvedPlaylistId })
+                .eq('id', terminalId)
+                .select()
+                .single();
+
+            if (error) {
+                console.error('[ASSIGN] Supabase error:', error);
+                alert(`Erro ao atribuir playlist: ${error.message}`);
+                return;
+            }
+
+            console.log('[ASSIGN] Success:', data);
+
             // Optimistic UI: atualizar estado local imediatamente
             setTerminals(prev => prev.map(t =>
-                t.id === terminalId ? { ...t, assigned_playlist_id: playlistId || null } : t
+                t.id === terminalId ? { ...t, assigned_playlist_id: resolvedPlaylistId } : t
             ));
         } catch (e) {
-            console.error(e);
-            alert('Erro ao atribuir playlist: ' + e.message);
+            console.error('[ASSIGN] Exception:', e);
+            alert('Erro ao atribuir playlist: ' + (e.message || 'Erro desconhecido'));
         }
     };
 
     const handleUpdateField = async (terminalId, field, value) => {
-        try {
-            // Mapear campos camelCase para snake_case do banco
-            const fieldMap = {
-                'openingTime': 'operating_start',
-                'closingTime': 'operating_end',
-                'activeDays': 'operating_days',
-                'powerMode': 'power_mode',
-                'currentMedia': 'current_media'
-            };
-            const dbField = fieldMap[field] || field;
+        // Ignorar campos apenas locais (UI state)
+        if (field === 'isMonitoring') {
+            setTerminals(prev => prev.map(t =>
+                t.id === terminalId ? { ...t, [field]: value } : t
+            ));
+            return;
+        }
 
-            console.log(`[UPDATE] Terminal ${terminalId} | Field: ${field} -> ${dbField} | Value:`, value);
-            await updateDocument('terminals', terminalId, { [dbField]: value });
-            console.log(`[UPDATE] Success for ${dbField}`);
+        // Mapear campos camelCase para snake_case do banco
+        const fieldMap = {
+            'openingTime': 'operating_start',
+            'closingTime': 'operating_end',
+            'activeDays': 'operating_days',
+            'powerMode': 'power_mode',
+            'currentMedia': 'current_media'
+        };
+        const dbField = fieldMap[field] || field;
+
+        console.log(`[UPDATE] Terminal ${terminalId} | Field: ${field} -> ${dbField} | Value:`, value);
+
+        try {
+            // Usar Supabase diretamente para garantir save
+            const { data, error } = await supabase
+                .from('terminals')
+                .update({ [dbField]: value })
+                .eq('id', terminalId)
+                .select()
+                .single();
+
+            if (error) {
+                console.error(`[UPDATE] Supabase error for ${dbField}:`, error);
+                alert(`Erro ao atualizar ${field}: ${error.message}`);
+                return;
+            }
+
+            console.log(`[UPDATE] Success for ${dbField}:`, data);
 
             // Optimistic UI: atualizar estado local
             setTerminals(prev => prev.map(t =>
                 t.id === terminalId ? { ...t, [dbField]: value } : t
             ));
         } catch (e) {
-            console.error(`[UPDATE] FAILED for ${field}:`, e);
+            console.error(`[UPDATE] Exception for ${field}:`, e);
             alert(`Erro ao atualizar ${field}: ${e.message || 'Erro desconhecido'}\n\nVerifique as permissões ou tente novamente.`);
         }
     };
@@ -632,26 +675,7 @@ const Players = () => {
         const targets = terminals.filter(t => t.group === bulkGroup);
 
         if (selectedPlaylist && targets.length > 0) {
-            // Verificar conteúdo da Playlist
-            const allItems = [...(selectedPlaylist.localItems || []), ...(selectedPlaylist.globalItems || [])];
-            const hasVerticalUniqueContent = allItems.some(i => i.type === 'media' && i.orientation === 'vertical');
-            const hasHorizontalUniqueContent = allItems.some(i => i.type === 'media' && i.orientation === 'horizontal');
-
-            // Verificar terminais alvo
-            const hasVerticalTargets = targets.some(t => t.orientation === 'vertical');
-            const hasHorizontalTargets = targets.some(t => t.orientation === 'horizontal');
-
-            // Lógica de Bloqueio
-            if (hasVerticalUniqueContent && hasHorizontalTargets) {
-                if (!window.confirm(`⚠️ AVISO DE INCOMPATIBILIDADE\n\nA playlist "${selectedPlaylist.name}" contém mídia VERTICAL, mas o grupo "${bulkGroup}" possui terminais HORIZONTAIS.\n\nEsses conteúdos serão pulados ou distorcidos nessas telas.\nDeseja aplicar mesmo assim?`)) {
-                    return;
-                }
-            }
-            if (hasHorizontalUniqueContent && hasVerticalTargets) {
-                if (!window.confirm(`⚠️ AVISO DE INCOMPATIBILIDADE\n\nA playlist "${selectedPlaylist.name}" contém mídia HORIZONTAL, mas o grupo "${bulkGroup}" possui terminais VERTICAIS.\n\nEsses conteúdos serão pulados ou distorcidos nessas telas.\nDeseja aplicar mesmo assim?`)) {
-                    return;
-                }
-            }
+            // Sistema vertical-only: sem verificação de compatibilidade de orientação
         }
         // ---------------------------------------------
 
@@ -703,13 +727,12 @@ const Players = () => {
                 pairingRecord = codeData;
             }
 
-            // Mapear orientação UI -> DB
-            const dbOrientation = orientation === 'vertical' ? 'portrait' : 'landscape';
+            // Sistema vertical-only: orientação fixa portrait
 
             const newTerminal = await createDocument('terminals', {
                 name: newName,
                 group: newGroup || 'Default',
-                orientation: dbOrientation,
+                orientation: 'portrait',
                 last_seen: new Date().toISOString(),
                 metrics: { temp: "---", cpu: "---", disk: "---", freeSpace: "---" },
                 status: 'online',
@@ -997,9 +1020,8 @@ const Players = () => {
                         </div>
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Orientação</label>
-                            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                                <button type="button" onClick={() => setOrientation('horizontal')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${orientation === 'horizontal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>H</button>
-                                <button type="button" onClick={() => setOrientation('vertical')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${orientation === 'vertical' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>V</button>
+                            <div className="flex items-center bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-200">
+                                <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider">📱 Vertical 9:16</span>
                             </div>
                         </div>
 

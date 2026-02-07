@@ -30,8 +30,54 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Listener para eventos de atualização
     onUpdateStatus: (callback) => {
         ipcRenderer.on('update-status', (event, data) => callback(data));
+    },
+
+    // ============================================
+    // CACHE MANAGER APIs (Offline-First v17)
+    // ============================================
+
+    // Obter caminho local de mídia (retorna null se não cacheada)
+    getCachedMediaPath: (mediaId) => ipcRenderer.invoke('cache-get-local-path', mediaId),
+
+    // Garantir que uma mídia está em cache (baixa se necessário)
+    ensureCached: (mediaItem) => ipcRenderer.invoke('cache-ensure-cached', mediaItem),
+
+    // Sincronizar playlist inteira para cache
+    // Retorna objeto { mediaId: localPath }
+    syncPlaylistToCache: (playlistItems) => ipcRenderer.invoke('cache-sync-playlist', playlistItems),
+
+    // Obter estatísticas do cache
+    getCacheStats: () => ipcRenderer.invoke('cache-get-stats'),
+
+    // Verificar se mídia está em cache
+    isCached: (mediaId) => ipcRenderer.invoke('cache-is-cached', mediaId),
+
+    // Limpar todo o cache
+    clearCache: () => ipcRenderer.invoke('cache-clear-all'),
+
+    // Listener para progresso de download de cache
+    onCacheProgress: (callback) => {
+        ipcRenderer.on('cache-progress', (event, data) => callback(data));
+    },
+
+    // ============================================
+    // MPV PLAYER APIs (Native Video Playback)
+    // ============================================
+
+    // Tocar vídeo via mpv (caminho local ou URL remota)
+    playVideo: (filePath) => ipcRenderer.invoke('mpv-play-video', filePath),
+
+    // Parar vídeo mpv
+    stopVideo: () => ipcRenderer.invoke('mpv-stop-video'),
+
+    // Verificar se mpv está disponível
+    isMpvAvailable: () => ipcRenderer.invoke('mpv-is-available'),
+
+    // Listener para quando o vídeo do mpv termina
+    onMpvVideoEnded: (callback) => {
+        ipcRenderer.on('mpv-video-ended', (event, data) => callback(data));
     }
 });
 
-console.log('[Preload] Electron APIs exposed');
+console.log('[Preload] Electron APIs exposed (v17 Offline-First)');
 

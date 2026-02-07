@@ -267,7 +267,7 @@ const Player = () => {
                 const activeCampaigns = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const newPlaylist = [];
                 activeCampaigns.forEach(camp => {
-                    const mediaId = terminal.orientation === 'vertical' ? camp.vMediaId : camp.hMediaId;
+                    const mediaId = camp.vMediaId || camp.hMediaId;
                     if (mediaId) {
                         newPlaylist.push({
                             campaignId: camp.id,
@@ -310,13 +310,13 @@ const Player = () => {
             let finalUrl = nextItem.url;
             let finalType = nextItem.type;
 
-            // CASO A: É uma campanha (precisamos descobrir a mídia H ou V)
+            // CASO A: É uma campanha (buscar mídia vertical)
             if (nextItem.itemType === 'campaign') {
                 const campDoc = await getDoc(doc(db, "campaigns", nextItem.campaignId));
                 if (campDoc.exists()) {
                     const campData = campDoc.data();
-                    finalMediaId = terminal.orientation === 'vertical' ? campData.vMediaId : campData.hMediaId;
-                    console.log(`Player: Item é Campanha "${campData.name}". MediaId selecionado (${terminal.orientation}):`, finalMediaId);
+                    finalMediaId = campData.vMediaId || campData.hMediaId;
+                    console.log(`Player: Item é Campanha "${campData.name}". MediaId selecionado:`, finalMediaId);
                 }
             }
 

@@ -29,8 +29,9 @@ const calculateCampaignCost = (slotsCount) => {
 // Taxa de alteração de campanha dentro da vigência
 const EDIT_FEE = 35;
 
-const MediaPicker = ({ label, orientation, selectedId, onSelect, mediaFiles }) => {
-    const filteredMedia = mediaFiles.filter(m => m.orientation === orientation);
+const MediaPicker = ({ label, selectedId, onSelect, mediaFiles }) => {
+    // Sistema vertical-only: mostrar todas as mídias
+    const filteredMedia = mediaFiles;
     const selected = mediaFiles.find(m => m.id === selectedId);
 
     return (
@@ -42,7 +43,7 @@ const MediaPicker = ({ label, orientation, selectedId, onSelect, mediaFiles }) =
                     onChange={(e) => onSelect(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-700 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500/50 outline-none appearance-none transition-all cursor-pointer"
                 >
-                    <option value="">Selecione uma mídia {orientation}...</option>
+                    <option value="">Selecione uma mídia vertical...</option>
                     {filteredMedia.map(m => (
                         <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
@@ -59,7 +60,7 @@ const MediaPicker = ({ label, orientation, selectedId, onSelect, mediaFiles }) =
                     </div>
                     <div className="flex flex-col min-w-0">
                         <span className="text-sm font-black text-indigo-900 truncate Outfit">{selected.name}</span>
-                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-tighter">Mídia Confirmada • {selected.orientation}</span>
+                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-tighter">Mídia Confirmada • Vertical 9:16</span>
                     </div>
                 </div>
             )}
@@ -72,9 +73,9 @@ const TerminalPicker = ({ quota, selectedTerminals, onToggle, terminals }) => {
         <div className="space-y-4">
             <div className="flex justify-between items-center pl-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] Outfit">
-                    Selecionar Telas ({selectedTerminals.length}/{quota === 'unlimited' ? '∞' : quota})
+                    Selecionar Telas ({selectedTerminals.length}/{quota === -1 ? '∞' : quota})
                 </label>
-                {selectedTerminals.length >= quota && quota !== 'unlimited' && (
+                {selectedTerminals.length >= quota && quota !== -1 && (
                     <span className="text-[9px] text-amber-600 font-black bg-amber-50 px-2 py-1 rounded-full border border-amber-200 uppercase tracking-tighter">
                         LIMITE ATINGIDO
                     </span>
@@ -89,7 +90,7 @@ const TerminalPicker = ({ quota, selectedTerminals, onToggle, terminals }) => {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {terminals.filter(t => (t.group || 'Default') === groupName).map(t => {
                                 const isSelected = selectedTerminals.includes(t.id);
-                                const isDisabled = !isSelected && quota !== 'unlimited' && selectedTerminals.length >= quota;
+                                const isDisabled = !isSelected && quota !== -1 && selectedTerminals.length >= quota;
 
                                 return (
                                     <button
@@ -114,7 +115,7 @@ const TerminalPicker = ({ quota, selectedTerminals, onToggle, terminals }) => {
                                         </span>
                                         <div className="flex items-center space-x-2">
                                             <span className={`text-[9px] font-black uppercase tracking-widest ${isSelected ? 'text-indigo-400' : 'text-slate-400'}`}>
-                                                {t.orientation}
+                                                Vertical 9:16
                                             </span>
                                         </div>
                                     </button>
@@ -142,11 +143,13 @@ const Campaigns = () => {
     const [previewCamp, setPreviewCamp] = useState(null);
 
     const [newName, setNewName] = useState('');
+    // Sistema vertical-only: hMediaId mantido para compatibilidade DB mas não usado na UI
     const [hMediaId, setHMediaId] = useState('');
     const [vMediaId, setVMediaId] = useState('');
     const [screensQuota, setScreensQuota] = useState(1);
     const [targetTerminals, setTargetTerminals] = useState([]);
-    const [selectedOrientation, setSelectedOrientation] = useState(''); // 'landscape' ou 'portrait'
+    // Sistema vertical-only: orientação fixa portrait
+    const selectedOrientation = 'portrait';
 
     const [aiText, setAiText] = useState('');
     const [aiPhotos, setAiPhotos] = useState([]);
@@ -205,14 +208,26 @@ const Campaigns = () => {
         let debounceTimeout = null;
         const channel = supabase
             .channel('campaigns-realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'campaigns' }, () => {
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'campaigns'
+            }, (payload) => {
+                console.log('[Realtime] 📡 Campanha alterada:', payload.eventType, payload.new?.name || payload.old?.id);
                 // Debounce de 500ms para evitar múltiplos reloads
                 if (debounceTimeout) clearTimeout(debounceTimeout);
                 debounceTimeout = setTimeout(() => {
+                    console.log('[Realtime] 🔄 Recarregando campanhas...');
                     loadData();
                 }, 500);
             })
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log('[Realtime] ✅ Conectado ao canal campaigns');
+                } else {
+                    console.log('[Realtime] Status:', status);
+                }
+            });
 
         return () => {
             isMounted = false;
@@ -237,9 +252,9 @@ const Campaigns = () => {
 
     const handleCreate = async (e) => {
         e.preventDefault();
-        console.log("📋 [CAMPAIGN] Iniciando criação...", { newName, hMediaId, vMediaId, selectedOrientation, targetTerminals, isGlobal, slotsCount });
+        console.log("📋 [CAMPAIGN] Iniciando criação...", { newName, vMediaId, targetTerminals, isGlobal, slotsCount });
 
-        if (!newName || (!hMediaId && !vMediaId)) return alert("Preencha o nome e selecione uma mídia!");
+        if (!newName || !vMediaId) return alert("Preencha o nome e selecione uma mídia!");
         if (!isGlobal && targetTerminals.length === 0) return alert("Selecione ao menos uma tela ou marque como Global!");
 
         // Calcular custo da campanha
@@ -259,9 +274,9 @@ const Campaigns = () => {
         try {
             const data = {
                 name: newName,
-                h_media_id: hMediaId || null,
+                h_media_id: null, // Sistema vertical-only
                 v_media_id: vMediaId || null,
-                screens_quota: isGlobal ? 'unlimited' : screensQuota,
+                screens_quota: isGlobal ? -1 : screensQuota,
                 target_terminals: isGlobal ? [] : targetTerminals,
                 is_global: isGlobal,
                 moderation_status: 'pending',
@@ -315,6 +330,27 @@ const Campaigns = () => {
                     ...data,
                     credits_held: editingCamp.credits_held // Manter status anterior de reserva
                 });
+
+                // Re-propagar para playlists se campanha é global (independente do status)
+                if (editingCamp.is_global || isGlobal) {
+                    const mediaId = vMediaId || data.v_media_id;
+                    if (mediaId) {
+                        console.log('🌐 [EDIT] Campanha global editada — atualizando TODOS os slots globais...');
+                        const { data: updatedSlots, error: slotsError } = await supabase
+                            .from('playlist_slots')
+                            .update({ media_id: mediaId })
+                            .eq('slot_type', 'global')
+                            .eq('slot_index', 0)
+                            .select('id');
+
+                        if (slotsError) {
+                            console.error('🌐 [EDIT] ⚠️ Erro ao atualizar slots globais:', slotsError);
+                        } else {
+                            console.log(`🌐 [EDIT] ✅ ${updatedSlots?.length || 0} slots globais atualizados com mídia ${mediaId}`);
+                        }
+                    }
+                }
+
                 setEditingCamp(null);
 
                 if (isApproved) {
@@ -366,9 +402,9 @@ const Campaigns = () => {
 
             // Resetar todos os campos do formulário
             setNewName('');
-            setHMediaId('');
+            setHMediaId(''); // Reset para compatibilidade
             setVMediaId('');
-            setSelectedOrientation('');
+            // selectedOrientation é fixo, não precisa resetar
             setTargetTerminals([]);
             setIsGlobal(false);
             setSlotsCount(1);
@@ -491,6 +527,90 @@ const Campaigns = () => {
         setCategoryConflicts([]);
     };
 
+    // ========== PROPAGAÇÃO DE CAMPANHAS GLOBAIS ==========
+    // Quando uma campanha global é aprovada, atualiza o slot 'global' 
+    // de todas as playlists que têm orientação compatível com a mídia
+    const propagateGlobalCampaign = async (campData) => {
+        try {
+            // 1. Determinar mídia (vertical-only)
+            const mediaId = campData.v_media_id || campData.h_media_id;
+            if (!mediaId) {
+                console.warn('[GLOBAL] Campanha sem mídia definida');
+                return { success: false, message: 'Campanha sem mídia' };
+            }
+
+            // 2. Buscar a orientação da mídia
+            const { data: mediaData, error: mediaError } = await supabase
+                .from('media')
+                .select('id, orientation, name, url, type, duration')
+                .eq('id', mediaId)
+                .single();
+
+            if (mediaError || !mediaData) {
+                console.error('[GLOBAL] Erro ao buscar mídia:', mediaError);
+                return { success: false, message: 'Mídia não encontrada' };
+            }
+
+            console.log(`[GLOBAL] 📡 Propagando campanha global: "${campData.name}"`);
+            console.log(`[GLOBAL] Mídia: ${mediaData.name} (${mediaData.orientation})`);
+
+            // 3. Buscar todas as playlists
+            const { data: playlists, error: playlistError } = await supabase
+                .from('playlists')
+                .select('id, name');
+
+            if (playlistError) {
+                console.error('[GLOBAL] Erro ao buscar playlists:', playlistError);
+                return { success: false, message: 'Erro ao buscar playlists' };
+            }
+
+            // 4. Para cada playlist, atualizar o slot 'global' (índice 0)
+            let updatedCount = 0;
+            for (const playlist of playlists) {
+                // Verificar se já existe slot global (índice 0)
+                const { data: existingSlot } = await supabase
+                    .from('playlist_slots')
+                    .select('id')
+                    .eq('playlist_id', playlist.id)
+                    .eq('slot_index', 0)
+                    .single();
+
+                if (existingSlot) {
+                    // Atualizar slot existente
+                    const { error: updateError } = await supabase
+                        .from('playlist_slots')
+                        .update({
+                            media_id: mediaId,
+                            duration: mediaData.duration || 10
+                        })
+                        .eq('id', existingSlot.id);
+
+                    if (!updateError) updatedCount++;
+                } else {
+                    // Criar novo slot global
+                    const { error: insertError } = await supabase
+                        .from('playlist_slots')
+                        .insert({
+                            playlist_id: playlist.id,
+                            slot_index: 0,
+                            slot_type: 'global',
+                            media_id: mediaId,
+                            duration: mediaData.duration || 10
+                        });
+
+                    if (!insertError) updatedCount++;
+                }
+            }
+
+            console.log(`[GLOBAL] ✅ Atualizado ${updatedCount} playlists com campanha global`);
+            return { success: true, updatedCount };
+
+        } catch (error) {
+            console.error('[GLOBAL] Erro na propagação:', error);
+            return { success: false, message: error.message };
+        }
+    };
+
     const handleModerate = async (id, status, reason = '', categoryId = null) => {
         console.log("🔄 [MODERATE] Iniciando moderação:", { id, status, reason });
         try {
@@ -540,12 +660,21 @@ const Campaigns = () => {
             // Se aprovando, definir datas de validade e categoria
             if (status === 'approved') {
                 updateData.approved_at = now.toISOString();
-                updateData.expires_at = expiresAt.toISOString();
-                updateData.validity_days = validityDays;
+
+                // Campanhas globais não têm prazo de validade
+                if (campData.is_global) {
+                    updateData.expires_at = null;
+                    updateData.validity_days = null;
+                    console.log("🌐 [MODERATE] Campanha GLOBAL - sem prazo de validade");
+                } else {
+                    updateData.expires_at = expiresAt.toISOString();
+                    updateData.validity_days = validityDays;
+                    console.log("🔄 [MODERATE] Período de veiculação:", validityDays, "dias. Expira em:", expiresAt.toLocaleDateString('pt-BR'));
+                }
+
                 if (categoryId) {
                     updateData.business_category_id = categoryId;
                 }
-                console.log("🔄 [MODERATE] Período de veiculação:", validityDays, "dias. Expira em:", expiresAt.toLocaleDateString('pt-BR'));
 
                 // === CONSUMIR CRÉDITOS (já foram reservados na criação) ===
                 if (campData.credits_held && campData.credits_cost > 0) {
@@ -566,6 +695,17 @@ const Campaigns = () => {
                         console.log("✅ [MODERATE] Créditos consumidos definitivamente:", campData.credits_cost);
                     } catch (txError) {
                         console.warn("⚠️ [MODERATE] Erro ao registrar transação (não crítico):", txError);
+                    }
+                }
+
+                // === PROPAGAR CAMPANHA GLOBAL PARA TODAS AS PLAYLISTS ===
+                if (campData.is_global) {
+                    console.log("🌐 [MODERATE] Campanha GLOBAL detectada - propagando para playlists...");
+                    const propagateResult = await propagateGlobalCampaign(campData);
+                    if (propagateResult.success) {
+                        console.log(`🌐 [MODERATE] ✅ Campanha propagada para ${propagateResult.updatedCount} playlists`);
+                    } else {
+                        console.warn("🌐 [MODERATE] ⚠️ Erro na propagação:", propagateResult.message);
                     }
                 }
             } else if (status === 'rejected') {
@@ -605,9 +745,15 @@ const Campaigns = () => {
             const result = await updateDocument('campaigns', id, updateData);
             console.log("✅ [MODERATE] Campanha atualizada:", result);
 
-            const successMsg = status === 'approved'
+            let successMsg = status === 'approved'
                 ? `Campanha aprovada! Veiculação por ${validityDays} dias até ${expiresAt.toLocaleDateString('pt-BR')}.`
                 : `Campanha rejeitada. ${campData.credits_cost > 0 ? `💰 ${campData.credits_cost} créditos devolvidos ao cliente.` : ''}`;
+
+            // Adicionar info sobre propagação global
+            if (status === 'approved' && campData.is_global) {
+                successMsg += '\n\n🌐 Campanha GLOBAL propagada para todas as playlists!';
+            }
+
             alert(successMsg);
             setRejectionModalCamp(null);
             setRejectionReason('');
@@ -653,11 +799,12 @@ const Campaigns = () => {
         setIsAdding(true);
         setIsAIGenerating(false);
         setNewName(camp.name);
-        setHMediaId(camp.hMediaId || '');
-        setVMediaId(camp.vMediaId || '');
-        setScreensQuota(camp.screensQuota || 1);
-        setTargetTerminals(camp.targetTerminals || []);
-        setIsGlobal(camp.isGlobal || false);
+        setHMediaId(''); // Sistema vertical-only
+        setVMediaId(camp.v_media_id || '');
+        setScreensQuota(camp.screens_quota || 1);
+        setTargetTerminals(camp.target_terminals || []);
+        setIsGlobal(camp.is_global || false);
+        setSlotsCount(camp.slots_count || 1);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -842,61 +989,24 @@ const Campaigns = () => {
                                     </div>
                                 ) : (
                                     <div className="space-y-6">
-                                        {/* Seletor de Orientação */}
-                                        <div className="space-y-3">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] Outfit pl-1">
-                                                Formato da Mídia
-                                            </label>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setSelectedOrientation('landscape');
-                                                        setHMediaId('');
-                                                        setVMediaId('');
-                                                        setTargetTerminals([]);
-                                                    }}
-                                                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${selectedOrientation === 'landscape'
-                                                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                                                        : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
-                                                        }`}
-                                                >
-                                                    <div className="w-16 h-10 bg-slate-200 rounded-lg flex items-center justify-center text-[8px] font-black">
-                                                        16:9
-                                                    </div>
-                                                    <span className="text-xs font-black uppercase tracking-wider">Horizontal</span>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setSelectedOrientation('portrait');
-                                                        setHMediaId('');
-                                                        setVMediaId('');
-                                                        setTargetTerminals([]);
-                                                    }}
-                                                    className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${selectedOrientation === 'portrait'
-                                                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                                                        : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
-                                                        }`}
-                                                >
-                                                    <div className="w-10 h-16 bg-slate-200 rounded-lg flex items-center justify-center text-[8px] font-black">
-                                                        9:16
-                                                    </div>
-                                                    <span className="text-xs font-black uppercase tracking-wider">Vertical</span>
-                                                </button>
+                                        {/* Badge Formato Vertical */}
+                                        <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex items-center gap-3">
+                                            <div className="w-10 h-16 bg-indigo-200 rounded-lg flex items-center justify-center text-[8px] font-black text-indigo-600">
+                                                9:16
+                                            </div>
+                                            <div>
+                                                <span className="text-xs font-black text-indigo-900 Outfit block">Formato Vertical</span>
+                                                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-tighter">Todas as mídias são 9:16</span>
                                             </div>
                                         </div>
 
-                                        {/* MediaPicker baseado na orientação */}
-                                        {selectedOrientation && (
-                                            <MediaPicker
-                                                label={selectedOrientation === 'landscape' ? 'Mídia Horizontal 16:9' : 'Mídia Vertical 9:16'}
-                                                orientation={selectedOrientation}
-                                                selectedId={selectedOrientation === 'landscape' ? hMediaId : vMediaId}
-                                                onSelect={selectedOrientation === 'landscape' ? setHMediaId : setVMediaId}
-                                                mediaFiles={mediaFiles}
-                                            />
-                                        )}
+                                        {/* MediaPicker — sem filtro de orientação */}
+                                        <MediaPicker
+                                            label="Mídia Vertical 9:16"
+                                            selectedId={vMediaId}
+                                            onSelect={setVMediaId}
+                                            mediaFiles={mediaFiles}
+                                        />
                                     </div>
                                 )}
                             </div>
@@ -908,7 +1018,7 @@ const Campaigns = () => {
                                     <select
                                         value={screensQuota}
                                         onChange={(e) => {
-                                            const val = e.target.value === 'unlimited' ? 'unlimited' : parseInt(e.target.value);
+                                            const val = e.target.value === '-1' ? -1 : parseInt(e.target.value);
                                             setScreensQuota(val);
                                             setTargetTerminals([]);
                                         }}
@@ -918,7 +1028,7 @@ const Campaigns = () => {
                                         <option value={3}>Plano Business (Até 3 Telas)</option>
                                         <option value={5}>Plano Premium (Até 5 Telas)</option>
                                         <option value={10}>Plano Enterprise (Até 10 Telas)</option>
-                                        <option value="unlimited">Rede Ilimitada (Unlimited)</option>
+                                        <option value={-1}>Rede Ilimitada (Unlimited)</option>
                                     </select>
                                 </div>
 
@@ -948,20 +1058,13 @@ const Campaigns = () => {
                                     </div>
                                 )}
 
-                                {!isGlobal && selectedOrientation && (
+                                {!isGlobal && (
                                     <TerminalPicker
                                         quota={screensQuota}
                                         selectedTerminals={targetTerminals}
                                         onToggle={handleToggleTerminal}
-                                        terminals={terminals.filter(t => t.orientation === selectedOrientation)}
+                                        terminals={terminals}
                                     />
-                                )}
-                                {!isGlobal && !selectedOrientation && (
-                                    <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 text-center">
-                                        <p className="text-sm text-slate-500">
-                                            Selecione o formato da mídia para ver as telas compatíveis
-                                        </p>
-                                    </div>
                                 )}
                             </div>
                         </div>
@@ -1020,179 +1123,185 @@ const Campaigns = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {campaigns.map(c => (
-                                <tr key={c.id} className="group hover:bg-slate-50/50 transition-all duration-300">
-                                    <td className="px-8 py-6">
-                                        <div className="flex flex-col">
-                                            <div className="flex items-center space-x-2">
-                                                <span className="text-base font-black text-slate-800 Outfit group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{c.name}</span>
-                                                {c.isGlobal && (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-600 border border-emerald-200">
-                                                        <Globe className="w-3 h-3 mr-1" /> GLOBAL
-                                                    </span>
-                                                )}
-                                                {c.isAIGenerating && (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-indigo-100 text-indigo-600 animate-pulse border border-indigo-200">
-                                                        <Sparkles className="w-3 h-3 mr-1" /> IA ATIVA
-                                                    </span>
-                                                )}
-                                                {c.type === 'refinement' && (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-600 border border-amber-200">
-                                                        REFINAMENTO
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="flex items-center space-y-1 flex-col items-start mt-2">
-                                                <div className="flex items-center space-x-2">
-                                                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{formatExpirationDate(c.created_at)}</span>
-                                                    <span className="w-1 h-1 bg-slate-200 rounded-full" />
-                                                    <span className="text-[10px] font-black text-slate-400 truncate max-w-[120px]">ID: {c.id}</span>
-                                                </div>
-                                                {c.moderation_status === 'rejected' && c.rejection_reason && (
-                                                    <div className="bg-red-50 text-red-600 p-2 rounded-lg border border-red-100 mt-2 max-w-xs">
-                                                        <p className="text-[9px] font-black uppercase tracking-tighter mb-1 select-none">Motivo da Rejeição:</p>
-                                                        <p className="text-[10px] font-bold italic">"{c.rejection_reason}"</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </td>
+                            {campaigns.map(c => {
+                                // Destacar campanhas do próprio admin com tom diferenciado
+                                const isAdminCampaign = userData?.role === 'admin' && c.owner_id === currentUser?.id;
 
-                                    <td className="px-8 py-6">
-                                        <div className="flex flex-col items-center justify-center space-y-3">
-                                            <div className="flex -space-x-1.5 overflow-hidden">
-                                                {c.h_media_id && (
-                                                    <div className="w-7 h-7 bg-indigo-500 rounded-lg flex items-center justify-center ring-2 ring-white" title="Mídia Horizontal">
-                                                        <span className="text-[10px] font-black text-white">H</span>
-                                                    </div>
-                                                )}
-                                                {c.v_media_id && (
-                                                    <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center ring-2 ring-white" title="Mídia Vertical">
-                                                        <span className="text-[10px] font-black text-white">V</span>
-                                                    </div>
-                                                )}
-                                                {!c.h_media_id && !c.v_media_id && <span className="text-xs font-bold text-slate-300 italic">No Content</span>}
-                                            </div>
-                                            <div className="flex items-center space-x-2 bg-slate-100/50 px-3 py-1 rounded-full border border-slate-200/50">
-                                                <Monitor className="w-3 h-3 text-slate-400" />
-                                                <span className="text-[10px] font-black text-slate-600 tracking-tighter">
-                                                    {c.target_terminals?.length || 0} / {c.screens_quota === 'unlimited' ? '∞' : c.screens_quota} Telas
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </td>
-
-                                    <td className="px-8 py-6">
-                                        <div className="flex justify-center gap-2">
-                                            {userData?.role === 'admin' && (c.moderation_status !== 'approved' && c.moderation_status !== 'rejected') ? (
+                                return (
+                                    <tr
+                                        key={c.id}
+                                        className={`group transition-all duration-300 ${isAdminCampaign
+                                            ? 'bg-violet-50/30 hover:bg-violet-50/60 border-l-4 border-l-violet-400'
+                                            : 'hover:bg-slate-50/50'
+                                            }`}
+                                    >
+                                        <td className="px-8 py-6">
+                                            <div className="flex flex-col">
                                                 <div className="flex items-center space-x-2">
-                                                    <button
-                                                        onClick={() => {
-                                                            console.log("👁️ Preview Camp:", c);
-                                                            setPreviewCamp(c);
-                                                        }}
-                                                        className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-all"
-                                                        title="Visualizar Conteúdo"
-                                                    >
-                                                        <Eye className="w-4 h-4" />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => openApprovalModal(c)}
-                                                        className="px-3 py-1.5 bg-emerald-500 text-white text-[10px] font-black rounded-lg hover:bg-emerald-600 transition-all uppercase shadow-sm shadow-emerald-500/20 active:scale-95"
-                                                    >
-                                                        Aprovar
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setRejectionModalCamp(c)}
-                                                        className="px-3 py-1.5 bg-red-500 text-white text-[10px] font-black rounded-lg hover:bg-red-600 transition-all uppercase shadow-sm shadow-red-500/20 active:scale-95"
-                                                    >
-                                                        Rejeitar
-                                                    </button>
+                                                    <span className="text-base font-black text-slate-800 Outfit group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{c.name}</span>
+                                                    {c.is_global && (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-600 border border-emerald-200">
+                                                            <Globe className="w-3 h-3 mr-1" /> GLOBAL
+                                                        </span>
+                                                    )}
+                                                    {c.is_ai_generating && (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-indigo-100 text-indigo-600 animate-pulse border border-indigo-200">
+                                                            <Sparkles className="w-3 h-3 mr-1" /> IA ATIVA
+                                                        </span>
+                                                    )}
+                                                    {c.type === 'refinement' && (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-600 border border-amber-200">
+                                                            REFINAMENTO
+                                                        </span>
+                                                    )}
                                                 </div>
-                                            ) : (
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <div className={`
+                                                <div className="flex items-center space-y-1 flex-col items-start mt-2">
+                                                    <div className="flex items-center space-x-2">
+                                                        <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{formatExpirationDate(c.created_at)}</span>
+                                                        <span className="w-1 h-1 bg-slate-200 rounded-full" />
+                                                        <span className="text-[10px] font-black text-slate-400 truncate max-w-[120px]">ID: {c.id}</span>
+                                                    </div>
+                                                    {c.moderation_status === 'rejected' && c.rejection_reason && (
+                                                        <div className="bg-red-50 text-red-600 p-2 rounded-lg border border-red-100 mt-2 max-w-xs">
+                                                            <p className="text-[9px] font-black uppercase tracking-tighter mb-1 select-none">Motivo da Rejeição:</p>
+                                                            <p className="text-[10px] font-bold italic">"{c.rejection_reason}"</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </td>
+
+                                        <td className="px-8 py-6">
+                                            <div className="flex flex-col items-center justify-center space-y-3">
+                                                <div className="flex -space-x-1.5 overflow-hidden">
+                                                    {c.v_media_id && (
+                                                        <div className="w-7 h-7 bg-indigo-500 rounded-lg flex items-center justify-center ring-2 ring-white" title="Mídia Vertical">
+                                                            <span className="text-[10px] font-black text-white">V</span>
+                                                        </div>
+                                                    )}
+                                                    {!c.v_media_id && <span className="text-xs font-bold text-slate-300 italic">Sem Mídia</span>}
+                                                </div>
+                                                <div className="flex items-center space-x-2 bg-slate-100/50 px-3 py-1 rounded-full border border-slate-200/50">
+                                                    <Monitor className="w-3 h-3 text-slate-400" />
+                                                    <span className="text-[10px] font-black text-slate-600 tracking-tighter">
+                                                        {c.target_terminals?.length || 0} / {c.screens_quota === -1 ? '∞' : c.screens_quota} Telas
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </td>
+
+                                        <td className="px-8 py-6">
+                                            <div className="flex justify-center gap-2">
+                                                {userData?.role === 'admin' && (c.moderation_status !== 'approved' && c.moderation_status !== 'rejected') ? (
+                                                    <div className="flex items-center space-x-2">
+                                                        <button
+                                                            onClick={() => {
+                                                                console.log("👁️ Preview Camp:", c);
+                                                                setPreviewCamp(c);
+                                                            }}
+                                                            className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-all"
+                                                            title="Visualizar Conteúdo"
+                                                        >
+                                                            <Eye className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => openApprovalModal(c)}
+                                                            className="px-3 py-1.5 bg-emerald-500 text-white text-[10px] font-black rounded-lg hover:bg-emerald-600 transition-all uppercase shadow-sm shadow-emerald-500/20 active:scale-95"
+                                                        >
+                                                            Aprovar
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setRejectionModalCamp(c)}
+                                                            className="px-3 py-1.5 bg-red-500 text-white text-[10px] font-black rounded-lg hover:bg-red-600 transition-all uppercase shadow-sm shadow-red-500/20 active:scale-95"
+                                                        >
+                                                            Rejeitar
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col items-center gap-1">
+                                                        <div className={`
                                                         group relative inline-flex items-center space-x-2 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border-2
                                                         ${c.moderation_status === 'approved'
-                                                            ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                                                            : c.moderation_status === 'rejected'
-                                                                ? 'bg-red-50 text-red-600 border-red-100'
-                                                                : c.moderation_status === 'expired'
-                                                                    ? 'bg-slate-100 text-slate-500 border-slate-200'
-                                                                    : 'bg-amber-50 text-amber-600 border-amber-100'}
+                                                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                                                : c.moderation_status === 'rejected'
+                                                                    ? 'bg-red-50 text-red-600 border-red-100'
+                                                                    : c.moderation_status === 'expired'
+                                                                        ? 'bg-slate-100 text-slate-500 border-slate-200'
+                                                                        : 'bg-amber-50 text-amber-600 border-amber-100'}
                                                     `}>
-                                                        {c.moderation_status === 'approved' ? <CheckCircle className="w-4 h-4" />
-                                                            : c.moderation_status === 'rejected' ? <XCircle className="w-4 h-4" />
-                                                                : c.moderation_status === 'expired' ? <Clock className="w-4 h-4" />
-                                                                    : <Clock className="w-4 h-4" />}
-                                                        <span>
-                                                            {c.moderation_status === 'approved' ? 'Aprovada'
-                                                                : c.moderation_status === 'rejected' ? 'Rejeitada'
-                                                                    : c.moderation_status === 'expired' ? 'Expirada'
-                                                                        : 'Em Análise'}
-                                                        </span>
-                                                    </div>
-                                                    {/* Dias restantes para campanhas aprovadas */}
-                                                    {c.moderation_status === 'approved' && c.expires_at && (() => {
-                                                        const now = new Date();
-                                                        const expires = new Date(c.expires_at);
-                                                        const daysLeft = Math.ceil((expires - now) / (1000 * 60 * 60 * 24));
-                                                        const isExpiringSoon = daysLeft <= 7;
-                                                        const isExpired = daysLeft < 0;
+                                                            {c.moderation_status === 'approved' ? <CheckCircle className="w-4 h-4" />
+                                                                : c.moderation_status === 'rejected' ? <XCircle className="w-4 h-4" />
+                                                                    : c.moderation_status === 'expired' ? <Clock className="w-4 h-4" />
+                                                                        : <Clock className="w-4 h-4" />}
+                                                            <span>
+                                                                {c.moderation_status === 'approved' ? 'Aprovada'
+                                                                    : c.moderation_status === 'rejected' ? 'Rejeitada'
+                                                                        : c.moderation_status === 'expired' ? 'Expirada'
+                                                                            : 'Em Análise'}
+                                                            </span>
+                                                        </div>
+                                                        {/* Dias restantes para campanhas aprovadas */}
+                                                        {c.moderation_status === 'approved' && c.expires_at && (() => {
+                                                            const now = new Date();
+                                                            const expires = new Date(c.expires_at);
+                                                            const daysLeft = Math.ceil((expires - now) / (1000 * 60 * 60 * 24));
+                                                            const isExpiringSoon = daysLeft <= 7;
+                                                            const isExpired = daysLeft < 0;
 
-                                                        if (isExpired) {
+                                                            if (isExpired) {
+                                                                return (
+                                                                    <span className="text-[9px] font-bold text-red-500">
+                                                                        Expirou há {Math.abs(daysLeft)} dia(s)
+                                                                    </span>
+                                                                );
+                                                            }
+
                                                             return (
-                                                                <span className="text-[9px] font-bold text-red-500">
-                                                                    Expirou há {Math.abs(daysLeft)} dia(s)
+                                                                <span className={`text-[9px] font-bold ${isExpiringSoon ? 'text-amber-500' : 'text-slate-400'}`}>
+                                                                    {daysLeft} dia(s) restante(s)
                                                                 </span>
                                                             );
-                                                        }
+                                                        })()}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </td>
 
-                                                        return (
-                                                            <span className={`text-[9px] font-bold ${isExpiringSoon ? 'text-amber-500' : 'text-slate-400'}`}>
-                                                                {daysLeft} dia(s) restante(s)
-                                                            </span>
-                                                        );
-                                                    })()}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </td>
-
-                                    <td className="px-8 py-6 text-right">
-                                        <div className="flex items-center justify-end space-x-2">
-                                            {userData?.role === 'cliente' && c.moderation_status === 'rejected' && (
+                                        <td className="px-8 py-6 text-right">
+                                            <div className="flex items-center justify-end space-x-2">
+                                                {userData?.role === 'cliente' && c.moderation_status === 'rejected' && (
+                                                    <button
+                                                        onClick={() => handleEditCampaign(c)}
+                                                        className="p-2.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl hover:bg-indigo-100 transition-all active:scale-90"
+                                                        title="Corrigir e Reenviar"
+                                                    >
+                                                        <Edit2 className="w-5 h-5" />
+                                                    </button>
+                                                )}
+                                                {!c.is_ai_generating && c.v_media_id && (
+                                                    <button
+                                                        onClick={() => handleRefinementRequest(c)}
+                                                        className="p-2.5 bg-white text-slate-400 border border-slate-100 rounded-xl hover:text-indigo-600 hover:border-indigo-200 hover:shadow-md transition-all active:scale-90"
+                                                        title="Solicitar Ajuste IA"
+                                                    >
+                                                        <Sparkles className="w-5 h-5" />
+                                                    </button>
+                                                )}
                                                 <button
-                                                    onClick={() => handleEditCampaign(c)}
-                                                    className="p-2.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl hover:bg-indigo-100 transition-all active:scale-90"
-                                                    title="Corrigir e Reenviar"
+                                                    onClick={() => handleDelete(c.id)}
+                                                    className="p-2.5 bg-white text-slate-300 border border-slate-100 rounded-xl hover:text-red-500 hover:border-red-100 hover:shadow-md transition-all active:scale-95"
+                                                    title="Excluir Campanha"
                                                 >
-                                                    <Edit2 className="w-5 h-5" />
+                                                    <Trash2 className="w-5 h-5" />
                                                 </button>
-                                            )}
-                                            {!c.isAIGenerating && c.hMediaId && c.vMediaId && (
-                                                <button
-                                                    onClick={() => handleRefinementRequest(c)}
-                                                    className="p-2.5 bg-white text-slate-400 border border-slate-100 rounded-xl hover:text-indigo-600 hover:border-indigo-200 hover:shadow-md transition-all active:scale-90"
-                                                    title="Solicitar Ajuste IA"
-                                                >
-                                                    <Sparkles className="w-5 h-5" />
+                                                <button className="md:hidden p-2.5 bg-white text-slate-400 border border-slate-100 rounded-xl">
+                                                    <ArrowUpRight className="w-5 h-5" />
                                                 </button>
-                                            )}
-                                            <button
-                                                onClick={() => handleDelete(c.id)}
-                                                className="p-2.5 bg-white text-slate-300 border border-slate-100 rounded-xl hover:text-red-500 hover:border-red-100 hover:shadow-md transition-all active:scale-95"
-                                                title="Excluir Campanha"
-                                            >
-                                                <Trash2 className="w-5 h-5" />
-                                            </button>
-                                            <button className="md:hidden p-2.5 bg-white text-slate-400 border border-slate-100 rounded-xl">
-                                                <ArrowUpRight className="w-5 h-5" />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                     {campaigns.length === 0 && (
@@ -1235,7 +1344,7 @@ const Campaigns = () => {
                             <div className="bg-amber-50 p-5 rounded-2xl border border-amber-100 flex items-start space-x-3">
                                 <AlertTriangle className="w-5 h-5 text-amber-500 mt-1 flex-shrink-0" />
                                 <p className="text-[11px] text-amber-700 font-bold leading-relaxed italic">
-                                    Nota: Este pedido gerará novas mídias Vertical e Horizontal automaticamente baseadas na versão anterior e no seu feedback atual.
+                                    Nota: Este pedido gerará nova mídia Vertical automaticamente baseada na versão anterior e no seu feedback atual.
                                 </p>
                             </div>
 
@@ -1272,21 +1381,7 @@ const Campaigns = () => {
                         </div>
 
                         <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8 bg-slate-50">
-                            {/* Horizontal Preview */}
-                            <div className="space-y-3">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Formato Horizontal (16:9)</label>
-                                <div className="aspect-video bg-black rounded-2xl overflow-hidden border-4 border-white shadow-xl flex items-center justify-center">
-                                    {mediaFiles.find(m => m.id === previewCamp.h_media_id) ? (
-                                        mediaFiles.find(m => m.id === previewCamp.h_media_id).type === 'video' ? (
-                                            <video src={mediaFiles.find(m => m.id === previewCamp.h_media_id).url} className="w-full h-full object-contain" controls />
-                                        ) : (
-                                            <img src={mediaFiles.find(m => m.id === previewCamp.h_media_id).url} className="w-full h-full object-contain" alt="H" />
-                                        )
-                                    ) : (
-                                        <div className="text-slate-600 italic text-xs">Mídia horizontal não definida</div>
-                                    )}
-                                </div>
-                            </div>
+                            {/* Preview já é vertical-only, sem horizontal preview */}
 
                             {/* Vertical Preview */}
                             <div className="space-y-3">

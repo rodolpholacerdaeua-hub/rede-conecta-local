@@ -21,9 +21,9 @@ import {
   checkPairingStatus
 } from './supabase';
 
-// V16.0: Windows Electron Edition
-const CURRENT_VERSION = "V16.0 WINDOWS";
-const CURRENT_VERSION_CODE = 16.0;
+// Versão dinâmica - busca do package.json via Electron API
+const CURRENT_VERSION = `V${__APP_VERSION__}`;
+const CURRENT_VERSION_CODE = 17.0;
 
 // ========================================
 // TELEMETRIA REMOTA
@@ -40,44 +40,48 @@ const remoteLog = async (terminalId, level, message, details = {}) => {
 };
 
 // ========================================
-// CACHE OFFLINE PARA LOGS DE PROOF OF PLAY
+// BUFFER DE LOGS (BATCHING A CADA 5 MINUTOS)
 // ========================================
-const PENDING_LOGS_KEY = 'pendingPopLogs';
+const LOG_BUFFER_KEY = 'popLogBuffer';
+const BATCH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
+const MAX_BUFFER_SIZE = 1000;
 
-// Salvar log no cache offline (localStorage)
-const savePendingLog = (logData) => {
+// Adicionar log ao buffer local
+const addToLogBuffer = (logData) => {
   try {
-    const pending = JSON.parse(localStorage.getItem(PENDING_LOGS_KEY) || '[]');
-    pending.push(logData);
-    // Limitar a 500 logs pendentes para não estourar storage
-    if (pending.length > 500) {
-      pending.splice(0, pending.length - 500);
+    const buffer = JSON.parse(localStorage.getItem(LOG_BUFFER_KEY) || '[]');
+    buffer.push(logData);
+
+    // Limitar tamanho do buffer
+    if (buffer.length > MAX_BUFFER_SIZE) {
+      buffer.splice(0, buffer.length - MAX_BUFFER_SIZE);
     }
-    localStorage.setItem(PENDING_LOGS_KEY, JSON.stringify(pending));
-    console.log(`[PoP] Saved offline (${pending.length} pending)`);
+
+    localStorage.setItem(LOG_BUFFER_KEY, JSON.stringify(buffer));
+    console.log(`[PoP] Buffered (${buffer.length} pending)`);
   } catch (e) {
-    console.error('[PoP] Failed to save offline:', e);
+    console.error('[PoP] Failed to buffer log:', e);
   }
 };
 
-// Sincronizar logs pendentes quando conexão volta
-const syncPendingLogs = async () => {
+// Flush buffer de logs para o servidor
+const flushLogBuffer = async () => {
   try {
-    const pending = JSON.parse(localStorage.getItem(PENDING_LOGS_KEY) || '[]');
-    if (pending.length === 0) return;
+    const buffer = JSON.parse(localStorage.getItem(LOG_BUFFER_KEY) || '[]');
+    if (buffer.length === 0) return;
 
-    console.log(`[PoP] Syncing ${pending.length} pending logs...`);
+    console.log(`[PoP] Flushing ${buffer.length} logs...`);
 
-    const { error } = await logPlaybackBatch(pending);
+    const { error } = await logPlaybackBatch(buffer);
 
     if (!error) {
-      localStorage.removeItem(PENDING_LOGS_KEY);
-      console.log(`[PoP] Successfully synced ${pending.length} logs`);
+      localStorage.removeItem(LOG_BUFFER_KEY);
+      console.log(`[PoP] Successfully flushed ${buffer.length} logs`);
     } else {
-      console.warn('[PoP] Failed to sync pending logs:', error.message);
+      console.warn('[PoP] Flush failed:', error.message);
     }
   } catch (e) {
-    console.error('[PoP] Error syncing pending logs:', e);
+    console.error('[PoP] Error flushing logs:', e);
   }
 };
 
@@ -96,7 +100,7 @@ const SplashScreen = () => (
         <Monitor size={60} color="#2563eb" />
       </div>
       <h1 className="title">REDE <span style={{ color: '#93c5fd' }}>CONECTA</span></h1>
-      <p className="subtitle" style={{ marginTop: '1rem', color: 'white', fontSize: '1.5rem' }}>V15.0 SUPABASE</p>
+      <p className="subtitle" style={{ marginTop: '1rem', color: 'white', fontSize: '1.5rem' }}>{CURRENT_VERSION}</p>
     </div>
     <div style={{ position: 'absolute', bottom: '80px' }}>
       <Loader2 className="animate-spin" color="white" size={40} />
@@ -172,6 +176,9 @@ function App() {
   const [authReady, setAuthReady] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [playlist, setPlaylist] = useState(null);
+  const [cacheMap, setCacheMap] = useState({}); // mediaId -> localPath
+  const [cacheProgress, setCacheProgress] = useState(null);
+  // Sistema vertical-only: orientação fixa portrait (não precisa de state)
   const lastSentSettingsRef = useRef(null);
 
   // Telemetria de Inicialização
@@ -261,6 +268,7 @@ function App() {
 
       if (data) {
         setTerminalData(data);
+        // Sistema vertical-only: não precisa ler orientação do banco
         setDiag(prev => ({ ...prev, t: `OK: ${data.name || 'Terminal'}` }));
         setLoading(false);
       } else if (error) {
@@ -285,6 +293,7 @@ function App() {
 
         console.log('[Realtime] Terminal update applied');
         setTerminalData(payload.new);
+        // Sistema vertical-only: não precisa ler orientação
         setDiag(d => ({ ...d, t: `OK: ${payload.new.name || 'Terminal'}` }));
       }
     });
@@ -324,20 +333,41 @@ function App() {
     };
     fetchPlaylist();
 
-    // Realtime subscription
-    const channel = subscribeToPlaylist(playlistId, () => {
-      fetchPlaylist(); // Refetch on change
+    // Realtime subscription - playlist_slots (mudanças diretas nos slots)
+    const slotsChannel = subscribeToPlaylist(playlistId, () => {
+      console.log('[REALTIME] playlist_slots changed, refetching...');
+      fetchPlaylist();
     });
 
+    // Realtime subscription - playlists (backup: quando Playlists.jsx atualiza updated_at)
+    const playlistChannel = supabase
+      .channel(`playlist-parent:${playlistId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'playlists',
+          filter: `id=eq.${playlistId}`
+        },
+        (payload) => {
+          console.log('[REALTIME] playlist parent updated, refetching...', payload);
+          fetchPlaylist();
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(slotsChannel);
+      supabase.removeChannel(playlistChannel);
     };
   }, [terminalData?.assigned_playlist_id, authReady, terminalId]);
 
   // 5. Compile Effective Items
   useEffect(() => {
     if (!terminalData) return;
-    const orientation = terminalData.orientation || 'landscape';
+    // Sistema vertical-only: orientação fixa portrait
+    const orientation = 'portrait';
     let items = [];
 
     // Processar slots da playlist
@@ -352,7 +382,7 @@ function App() {
           type: slot.media.type,
           duration: slot.duration || slot.media.duration || 10,
           slotType: slot.slot_type,
-          orientation: slot.media.orientation || 'landscape',
+          orientation: 'portrait',
           startDate: slot.media.start_date || slot.start_date || null,
           endDate: slot.media.end_date || slot.end_date || null
         }));
@@ -360,10 +390,9 @@ function App() {
     }
 
     // ============================================
-    // SISTEMA DE VALIDAÇÃO AVANÇADO (5 FILTROS)  
+    // SISTEMA DE VALIDAÇÃO (4 FILTROS)  
     // ============================================
     const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.aac', '.ogg', '.m4a', '.flac'];
-    const isTerminalVertical = orientation === 'vertical' || orientation === 'portrait';
 
     const validateMedia = (item) => {
       const now = new Date();
@@ -392,22 +421,26 @@ function App() {
         console.warn(`[FILTER] Bloqueando áudio: "${item.name}"`);
         return false;
       }
-      // 5. Orientação
-      const isMediaVertical = item.orientation === 'vertical' || item.orientation === 'portrait';
-      if (isTerminalVertical !== isMediaVertical) {
-        console.warn(`[FILTER] Orientação incompatível: "${item.name}"`);
-        return false;
-      }
+      // (Filtro de orientação removido — sistema vertical-only)
       return true;
     };
 
     const validatedItems = items.filter(validateMedia);
     if (items.length - validatedItems.length > 0) {
-      remoteLog(terminalId, "INFO", "Content Filtered", { blocked: items.length - validatedItems.length });
+      // Log detalhado para diagnóstico
+      console.log(`[FILTER] ${items.length - validatedItems.length} items blocked`);
+      items.forEach(item => {
+        console.log(`[FILTER] Item "${item.name}" - url: ${item.url?.substring(0, 50)}...`);
+      });
+      remoteLog(terminalId, "INFO", "Content Filtered", {
+        blocked: items.length - validatedItems.length,
+        terminalOrientation: 'portrait',
+        itemsProcessed: items.map(i => ({ name: i.name }))
+      });
     }
 
     // FAIL-SAFE: Tela Nunca Vazia
-    const FALLBACK = { id: 'fallback', name: 'Institucional', url: 'https://images.unsplash.com/photo-1557672172-298e090bd0f1?w=1920&h=1080&fit=crop', type: 'image', duration: 15, orientation, slotType: 'fallback' };
+    const FALLBACK = { id: 'fallback', name: 'Institucional', url: 'https://images.unsplash.com/photo-1557672172-298e090bd0f1?w=1920&h=1080&fit=crop', type: 'image', duration: 15, orientation: 'portrait', slotType: 'fallback' };
     const finalItems = validatedItems.length > 0 ? validatedItems : [FALLBACK];
     if (validatedItems.length === 0 && items.length > 0) {
       console.warn("[FAIL-SAFE] Usando fallback");
@@ -416,7 +449,7 @@ function App() {
 
     // Build settings
     const currentSettings = {
-      orientation,
+      orientation: 'portrait',
       powerMode: terminalData.power_mode || 'auto',
       openingTime: terminalData.operating_start || '08:00',
       closingTime: terminalData.operating_end || '22:00',
@@ -426,20 +459,44 @@ function App() {
     const playlistChanged = JSON.stringify(finalItems) !== JSON.stringify(effectiveItems);
     const settingsChanged = JSON.stringify(currentSettings) !== JSON.stringify(lastSentSettingsRef.current);
 
+    // Sempre atualizar items — se nada mudou, JSON.stringify garante que não há re-render desnecessário
     if (playlistChanged) {
+      console.log(`[PLAYLIST] Items changed: ${effectiveItems.length} -> ${finalItems.length} items`);
       setEffectiveItems(finalItems);
       setDiag(prev => ({ ...prev, c: `M: ${finalItems.length} ${validatedItems.length === 0 ? '(FB)' : 'OK'}` }));
+
+      // ============================================
+      // SINCRONIZAR PLAYLIST PARA CACHE LOCAL (Offline-First v17)
+      // ============================================
+      if (window.electronAPI?.syncPlaylistToCache) {
+        console.log("[Cache] Syncing playlist to local cache...");
+        remoteLog(terminalId, "INFO", "Cache Sync Started", { items: finalItems.length });
+
+        window.electronAPI.syncPlaylistToCache(finalItems)
+          .then((results) => {
+            console.log("[Cache] Sync complete:", results);
+            setCacheMap(results || {});
+            remoteLog(terminalId, "INFO", "Cache Sync Complete", {
+              cached: Object.values(results || {}).filter(Boolean).length,
+              total: finalItems.length
+            });
+          })
+          .catch((err) => {
+            console.error("[Cache] Sync failed:", err);
+            remoteLog(terminalId, "ERROR", "Cache Sync Failed", { error: err.message });
+          });
+      }
     }
 
-    // Send to native
+    // Send to native (Android)
     if ((playlistChanged || settingsChanged) && finalItems.length > 0) {
       const configPayload = {
         playlist: finalItems,
         settings: currentSettings
       };
 
-      console.log("Pushing Config V15 to Native", configPayload.playlist.length);
-      remoteLog(terminalId, "INFO", "Pushing V15 Config to Native", { items: configPayload.playlist.length });
+      console.log("Pushing Config V17 to Native", configPayload.playlist.length);
+      remoteLog(terminalId, "INFO", "Pushing V17 Config to Native", { items: configPayload.playlist.length });
 
       try {
         if (window.Android) {
@@ -452,7 +509,7 @@ function App() {
 
       lastSentSettingsRef.current = currentSettings;
     }
-  }, [playlist, terminalData, terminalId, effectiveItems]);
+  }, [playlist, terminalData, terminalId]);
 
   // 6. Heartbeat & Standby
   useEffect(() => {
@@ -466,10 +523,33 @@ function App() {
       if (mode === 'off') sb = true;
       else if (mode === 'auto') {
         const days = terminalData.operating_days || [0, 1, 2, 3, 4, 5, 6];
-        const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const currentHour = now.getHours().toString().padStart(2, '0');
+        const currentMin = now.getMinutes().toString().padStart(2, '0');
+        const time = `${currentHour}:${currentMin}`;
         const op = (terminalData.operating_start || "08:00").substring(0, 5);
         const cl = (terminalData.operating_end || "22:00").substring(0, 5);
-        sb = !days.includes(now.getDay()) || (op <= cl ? (time < op || time > cl) : (time < op && time > cl));
+        const dayOfWeek = now.getDay();
+        const isDayAllowed = days.includes(dayOfWeek);
+
+        // Lógica: standby se NÃO está no dia OU fora do horário
+        const isOutsideHours = op <= cl
+          ? (time < op || time > cl)   // Horário normal (ex: 06:00 - 22:00)
+          : (time < op && time > cl);  // Horário overnight (ex: 22:00 - 06:00)
+
+        sb = !isDayAllowed || isOutsideHours;
+
+        // DEBUG LOGS
+        console.log('[STANDBY DEBUG] ==================');
+        console.log('[STANDBY DEBUG] Current Time:', time);
+        console.log('[STANDBY DEBUG] Day of Week:', dayOfWeek);
+        console.log('[STANDBY DEBUG] Allowed Days:', days);
+        console.log('[STANDBY DEBUG] Is Day Allowed:', isDayAllowed);
+        console.log('[STANDBY DEBUG] Operating Start:', op);
+        console.log('[STANDBY DEBUG] Operating End:', cl);
+        console.log('[STANDBY DEBUG] Is Outside Hours:', isOutsideHours);
+        console.log('[STANDBY DEBUG] Power Mode:', mode);
+        console.log('[STANDBY DEBUG] FINAL STANDBY:', sb);
+        console.log('[STANDBY DEBUG] ==================');
       }
       setIsStandby(sb);
 
@@ -491,29 +571,42 @@ function App() {
     return () => clearInterval(inv);
   }, [terminalData, terminalId, authReady]);
 
-  // 7. Sync Periódico de Logs Pendentes (offline cache)
+  // 7. Flush de Logs em Lote (a cada 5 minutos)
   useEffect(() => {
     if (!terminalId || !authReady) return;
 
-    // Sync a cada 2 minutos para garantir qualidade do serviço
-    const syncInterval = setInterval(() => {
+    // Flush a cada 5 minutos para economia de rede/DB
+    const flushInterval = setInterval(() => {
       if (navigator.onLine) {
-        syncPendingLogs();
+        flushLogBuffer();
       }
-    }, 2 * 60 * 1000); // 2 minutos
+    }, BATCH_INTERVAL_MS);
 
-    // Sync inicial após 10 segundos
-    const initialSync = setTimeout(() => {
+    // Flush inicial após 30 segundos
+    const initialFlush = setTimeout(() => {
       if (navigator.onLine) {
-        syncPendingLogs();
+        flushLogBuffer();
       }
-    }, 10000);
+    }, 30000);
 
     return () => {
-      clearInterval(syncInterval);
-      clearTimeout(initialSync);
+      clearInterval(flushInterval);
+      clearTimeout(initialFlush);
     };
   }, [terminalId, authReady]);
+
+  // 8. Listener de Progresso de Cache (Electron)
+  useEffect(() => {
+    if (!window.electronAPI?.onCacheProgress) return;
+
+    window.electronAPI.onCacheProgress((data) => {
+      setCacheProgress(data);
+      if (data.type === 'progress' && data.percent === 100) {
+        // Limpar progresso após completar
+        setTimeout(() => setCacheProgress(null), 3000);
+      }
+    });
+  }, []);
 
   return (
     <div className="app-container">
@@ -558,18 +651,53 @@ function App() {
         <WebMediaPlayer
           items={effectiveItems}
           terminalId={terminalId}
+          cacheMap={cacheMap}
         />
       )}
     </div>
   );
 }
 
-// Componente WebMediaPlayer para rodar mídias no browser
-function WebMediaPlayer({ items, terminalId }) {
+// Componente WebMediaPlayer para rodar mídias (Offline-First v17 + mpv)
+function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
+  const [mpvPlaying, setMpvPlaying] = React.useState(false);
   const currentItem = items[currentIndex];
 
-  // Registrar log de exibição quando a mídia muda (com cache offline)
+  // Obter URL para exibição (cache local ou remoto)
+  const getMediaUrl = (item) => {
+    // Verificar se temos caminho local em cache
+    const localPath = cacheMap[item.id];
+    if (localPath && window.electronAPI?.isElectron) {
+      const fileName = localPath.replace(/\\/g, '/').split('/').pop();
+      const cacheUrl = `media-cache://local/${fileName}`;
+      console.log(`[Player] Using cached: ${item.name} -> ${cacheUrl}`);
+      return cacheUrl;
+    }
+    console.log(`[Player] Using remote: ${item.name}`);
+    return item.url;
+  };
+
+  // Obter caminho para mpv (cache local direto ou URL remota)
+  const getMpvPath = (item) => {
+    const localPath = cacheMap[item.id];
+    if (localPath) {
+      console.log(`[Player] mpv using local file: ${localPath}`);
+      return localPath; // mpv pode ler arquivos locais diretamente!
+    }
+    console.log(`[Player] mpv using remote URL: ${item.url}`);
+    return item.url; // mpv pode ler URLs HTTPS também!
+  };
+
+  // Função para pular para próximo item
+  const [playCount, setPlayCount] = React.useState(0);
+  const skipToNext = React.useCallback(() => {
+    setPlayCount(c => c + 1);
+    setMpvPlaying(false);
+    setCurrentIndex(prev => (prev + 1) % items.length);
+  }, [items.length]);
+
+  // Registrar log de exibição quando a mídia muda
   React.useEffect(() => {
     if (!currentItem || !terminalId) return;
 
@@ -581,45 +709,100 @@ function WebMediaPlayer({ items, terminalId }) {
       slotIndex: currentIndex,
       slotType: currentItem.slotType || 'unknown',
       status: 'played',
-      appVersion: window.APP_VERSION || '1.0.0',
-      playedAt: new Date().toISOString()
+      appVersion: CURRENT_VERSION,
+      playedAt: new Date().toISOString(),
+      cachedLocally: !!cacheMap[currentItem.id]
     };
 
-    // Tentar enviar log de Proof of Play
-    logPlayback(logData).then(() => {
-      console.log(`[PoP] Logged: "${currentItem.name}"`);
-      // Tentar sincronizar logs pendentes quando online
-      syncPendingLogs();
-    }).catch(err => {
-      console.warn('[PoP] Failed to log, saving offline:', err.message);
-      // Salvar no cache offline
-      savePendingLog(logData);
-    });
-  }, [currentItem?.id, terminalId]); // Dispara quando a mídia muda
+    addToLogBuffer(logData);
+    console.log(`[PoP] Buffered: "${currentItem.name}" (cached: ${!!cacheMap[currentItem.id]})`);
+  }, [currentItem?.id, terminalId, cacheMap]);
 
-  // Timer para trocar de mídia
+  // Detectar se é vídeo
+  const isCurrentVideo = currentItem && (
+    currentItem.type === 'video' ||
+    currentItem.url?.includes('.mp4') ||
+    currentItem.url?.includes('.webm') ||
+    currentItem.url?.includes('.mkv') ||
+    currentItem.url?.includes('.avi')
+  );
+
+  // Listener para quando mpv termina o vídeo
+  React.useEffect(() => {
+    if (!window.electronAPI?.onMpvVideoEnded) return;
+
+    const handleMpvEnded = (data) => {
+      console.log('[Player] mpv video ended:', data);
+      if (data.success) {
+        skipToNext();
+      } else {
+        console.warn('[Player] mpv error, skipping:', data.error);
+        remoteLog(terminalId, 'ERROR', 'mpv Playback Error', {
+          name: currentItem?.name,
+          error: data.error
+        });
+        skipToNext();
+      }
+    };
+
+    window.electronAPI.onMpvVideoEnded(handleMpvEnded);
+
+    // Cleanup: remover listener ao desmontar
+    // Note: Electron IPC listeners don't have removeListener via preload
+    // So we use a flag to ignore stale events
+    return () => {
+      // No cleanup needed - handler is replaced on re-mount
+    };
+  }, [skipToNext, terminalId, currentItem?.name]);
+
+  // Quando o item atual é um vídeo, triggar mpv
   React.useEffect(() => {
     if (!currentItem || items.length === 0) return;
 
-    const duration = (currentItem.duration || 10) * 1000;
-    const timer = setTimeout(() => {
-      setCurrentIndex(prev => (prev + 1) % items.length);
-    }, duration);
+    if (isCurrentVideo && window.electronAPI?.playVideo) {
+      // === VÍDEO: Usar mpv nativo ===
+      const videoPath = getMpvPath(currentItem);
+      console.log(`[Player] Triggering mpv for: ${currentItem.name}`);
+      setMpvPlaying(true);
 
-    return () => clearTimeout(timer);
-  }, [currentIndex, currentItem, items]);
+      window.electronAPI.playVideo(videoPath).then(result => {
+        if (!result.success) {
+          console.error('[Player] mpv failed to start:', result.error);
+          remoteLog(terminalId, 'ERROR', 'mpv Start Error', {
+            name: currentItem.name,
+            error: result.error
+          });
+          // Fallback: pular para próximo após 2s
+          setTimeout(skipToNext, 2000);
+        }
+      });
+
+      // Safety timeout: 60s para vídeos via mpv (mais que o anterior de 30s)
+      const safetyTimer = setTimeout(() => {
+        console.warn(`[Player] mpv safety timeout for "${currentItem.name}" - stopping`);
+        window.electronAPI.stopVideo();
+        skipToNext();
+      }, 60000);
+
+      return () => clearTimeout(safetyTimer);
+    } else {
+      // === IMAGEM: Timer normal ===
+      setMpvPlaying(false);
+      const duration = (currentItem.duration || 10) * 1000;
+      const timer = setTimeout(() => {
+        setCurrentIndex(prev => (prev + 1) % items.length);
+      }, duration);
+      return () => clearTimeout(timer);
+    }
+  }, [currentIndex, currentItem, items, isCurrentVideo, playCount]);
 
   if (!currentItem) {
     return <div style={{ color: 'white' }}>Carregando mídia...</div>;
   }
 
-  const isVideo = currentItem.type === 'video' ||
-    currentItem.url?.includes('.mp4') ||
-    currentItem.url?.includes('.webm');
+  const mediaUrl = getMediaUrl(currentItem);
 
-  // Estilos: objectFit cover para preencher tela sem barras pretas
-  // Mídias incompatíveis já foram filtradas, então a mídia sempre
-  // terá proporção adequada para o terminal
+  // Tela configurada como portrait no Windows — fullscreen direto
   const containerStyle = {
     width: '100vw',
     height: '100vh',
@@ -630,7 +813,6 @@ function WebMediaPlayer({ items, terminalId }) {
     overflow: 'hidden'
   };
 
-  // Estilo da mídia: preencher tela completamente
   const mediaStyle = {
     width: '100%',
     height: '100%',
@@ -639,21 +821,47 @@ function WebMediaPlayer({ items, terminalId }) {
 
   return (
     <div style={containerStyle}>
-      {isVideo ? (
+      {mpvPlaying ? (
+        // Quando mpv está tocando, mostrar tela preta (mpv está por cima)
+        <div style={{
+          width: '100%',
+          height: '100%',
+          background: '#000',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          {/* Indicador sutil que o vídeo está tocando via mpv */}
+        </div>
+      ) : isCurrentVideo ? (
+        // Fallback: se mpv não disponível, usar <video> tag (melhor que nada)
         <video
-          key={currentItem.id}
-          src={currentItem.url}
+          key={`${currentItem.id}-${playCount}`}
+          src={mediaUrl}
           autoPlay
           muted
+          playsInline
           style={mediaStyle}
-          onEnded={() => setCurrentIndex(prev => (prev + 1) % items.length)}
+          onEnded={skipToNext}
+          onError={(e) => {
+            console.warn(`[Player] Video fallback error for ${currentItem.name}`, e.target.error);
+            skipToNext();
+          }}
         />
       ) : (
         <img
           key={currentItem.id}
-          src={currentItem.url}
+          src={mediaUrl}
           alt={currentItem.name}
           style={mediaStyle}
+          onError={(e) => {
+            console.warn(`[Player] Image error for ${currentItem.name}`);
+            if (mediaUrl.startsWith('media-cache://')) {
+              e.target.src = currentItem.url;
+            } else {
+              skipToNext();
+            }
+          }}
         />
       )}
 
@@ -666,14 +874,17 @@ function WebMediaPlayer({ items, terminalId }) {
         display: 'flex',
         gap: 8
       }}>
-        {items.map((_, idx) => (
+        {items.map((item, idx) => (
           <div
             key={idx}
+            title={cacheMap[item.id] ? 'Cached' : 'Remote'}
             style={{
               width: 8,
               height: 8,
               borderRadius: '50%',
-              background: idx === currentIndex ? '#6366f1' : 'rgba(255,255,255,0.3)'
+              background: idx === currentIndex
+                ? '#6366f1'
+                : (cacheMap[item.id] ? 'rgba(34, 197, 94, 0.5)' : 'rgba(255,255,255,0.3)')
             }}
           />
         ))}

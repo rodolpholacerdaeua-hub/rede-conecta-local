@@ -65,21 +65,12 @@ const AIAgentSimulator = () => {
 
                         const t2 = setTimeout(async () => {
                             try {
-                                const hMediaId = await createDocument('media', {
-                                    name: `AI_GEN_H_${request.campaign_name}`,
-                                    url: '/mock-ads/burger_king_ad_h.png',
-                                    type: 'image',
-                                    orientation: 'horizontal',
-                                    created_at: new Date().toISOString(),
-                                    is_ai_generated: true,
-                                    owner_id: request.owner_id || currentUser.id
-                                });
-
+                                // Sistema vertical-only: gerar apenas mídia vertical
                                 const vMediaId = await createDocument('media', {
                                     name: `AI_GEN_V_${request.campaign_name}`,
                                     url: '/mock-ads/burger_king_ad_v.png',
                                     type: 'image',
-                                    orientation: 'vertical',
+                                    orientation: 'portrait',
                                     created_at: new Date().toISOString(),
                                     is_ai_generated: true,
                                     owner_id: request.owner_id || currentUser.id
@@ -87,7 +78,7 @@ const AIAgentSimulator = () => {
 
                                 await updateDocument('campaigns', request.campaign_id, {
                                     name: request.campaign_name,
-                                    h_media_id: hMediaId,
+                                    h_media_id: null,
                                     v_media_id: vMediaId,
                                     is_ai_generating: false,
                                     ai_creation_fee: 49.90

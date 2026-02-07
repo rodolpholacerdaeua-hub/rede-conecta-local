@@ -246,21 +246,26 @@ const Playlists = () => {
 
         fetchPlaylists();
 
-        // Realtime subscription com filtro por owner (otimização Context7)
+        // Realtime subscription (admin vê tudo, cliente vê só as suas)
         const channel = supabase
             .channel(`playlists-${currentUser?.id || 'all'}`)
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
                 table: 'playlists',
-                filter: currentUser?.id ? `owner_id=eq.${currentUser.id}` : undefined
+                // Admin sem filtro (vê tudo), cliente filtra por owner
+                ...(userData?.role !== 'admin' && currentUser?.id ? { filter: `owner_id=eq.${currentUser.id}` } : {})
             }, (payload) => {
                 if (!ignore) {
-                    console.log('[Realtime] Playlist change:', payload.eventType);
+                    console.log('[Realtime] Playlist change:', payload.eventType, payload.new?.name || payload.old?.id);
                     fetchPlaylists();
                 }
             })
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log('[Realtime] ✅ Conectado ao canal playlists');
+                }
+            });
 
         return () => {
             ignore = true; // Cleanup

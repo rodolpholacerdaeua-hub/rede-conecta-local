@@ -27,3 +27,6 @@ npm-debug.log*
 *.msi
 *.dmg
 *.AppImage
+
+# mpv binary (bundled during build, not in git)
+mpv/

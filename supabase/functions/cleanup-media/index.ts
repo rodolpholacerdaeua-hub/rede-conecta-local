@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+const getErrorMessage = (error: unknown): string => {
+    return error instanceof Error ? error.message : String(error);
+};
+
 // Edge Function: cleanup-media
 // Executa diariamente via cron para:
 // 1. Expirar campanhas vencidas
@@ -41,7 +45,7 @@ Deno.serve(async (req: Request) => {
             const { data: expireResult } = await supabase.rpc('expire_campaigns');
             results.expiredCampaigns = expireResult || 0;
         } catch (error) {
-            results.errors.push(`expire_campaigns: ${error.message}`);
+            results.errors.push(`expire_campaigns: ${getErrorMessage(error)}`);
         }
 
         // 2. Arquivar mídias órfãs
@@ -49,7 +53,7 @@ Deno.serve(async (req: Request) => {
             const { data: archiveResult } = await supabase.rpc('archive_orphan_media');
             results.archivedMedia = archiveResult || 0;
         } catch (error) {
-            results.errors.push(`archive_orphan_media: ${error.message}`);
+            results.errors.push(`archive_orphan_media: ${getErrorMessage(error)}`);
         }
 
         // 3. Deletar mídias arquivadas há mais de 15 dias
@@ -57,7 +61,7 @@ Deno.serve(async (req: Request) => {
             const { data: cleanupResult } = await supabase.rpc('cleanup_archived_media');
             results.deletedMedia = cleanupResult || 0;
         } catch (error) {
-            results.errors.push(`cleanup_archived_media: ${error.message}`);
+            results.errors.push(`cleanup_archived_media: ${getErrorMessage(error)}`);
         }
 
         // Log de auditoria
@@ -81,7 +85,7 @@ Deno.serve(async (req: Request) => {
         console.error('[cleanup-media] Erro fatal:', error);
         return new Response(JSON.stringify({
             success: false,
-            error: error.message
+            error: getErrorMessage(error)
         }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }

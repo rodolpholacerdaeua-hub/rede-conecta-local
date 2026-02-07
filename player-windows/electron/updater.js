@@ -72,6 +72,18 @@ function initAutoUpdater(win) {
             status: 'downloaded',
             version: info.version
         });
+
+        // Em modo kiosk, instalar automaticamente após 5 segundos
+        // (o app nunca fecha em modo kiosk, então autoInstallOnAppQuit não funciona)
+        console.log('[AutoUpdater] Instalando automaticamente em 5 segundos...');
+        setTimeout(() => {
+            console.log('[AutoUpdater] Instalando e reiniciando agora!');
+            // Permitir que a janela feche para o instalador
+            if (mainWindow) {
+                mainWindow.allowClose = true;
+            }
+            autoUpdater.quitAndInstall(true, true);
+        }, 5000);
     });
 
     autoUpdater.on('error', (err) => {
@@ -87,10 +99,10 @@ function initAutoUpdater(win) {
         checkForUpdates();
     }, 10000);
 
-    // Verificar periodicamente (a cada 1 hora)
+    // Verificar periodicamente (a cada 10 minutos)
     setInterval(() => {
         checkForUpdates();
-    }, 60 * 60 * 1000);
+    }, 10 * 60 * 1000);
 }
 
 /**
@@ -112,7 +124,7 @@ function checkForUpdates() {
 function installUpdate() {
     if (updateDownloaded) {
         console.log('[AutoUpdater] Instalando atualização e reiniciando...');
-        autoUpdater.quitAndInstall(false, true);
+        autoUpdater.quitAndInstall(true, true);
     }
 }
 

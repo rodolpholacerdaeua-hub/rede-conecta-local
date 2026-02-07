@@ -219,12 +219,37 @@ export function subscribeToDocument(collectionName, docId, callback) {
 // ================================================
 
 /**
- * Upload de arquivo
+ * Upload de arquivo (com transcodificação automática de vídeo H.265→H.264)
  */
 export async function uploadFile(path, file, options = {}) {
+    let fileToUpload = file;
+
+    // Transcodificar vídeo se necessário (H.265 → H.264)
+    if (file.type && file.type.startsWith('video/')) {
+        try {
+            const { processVideoFile } = await import('./utils/videoTranscoder.js');
+            const result = await processVideoFile(
+                file,
+                options.onTranscodeProgress || null,
+                options.onTranscodeStatus || null
+            );
+            fileToUpload = result.file;
+            if (result.wasTranscoded) {
+                console.log(`[Upload] Vídeo convertido de ${result.originalCodec} para H.264`);
+                // Atualizar o path se extensão mudou
+                if (!path.endsWith('.mp4')) {
+                    path = path.replace(/\.[^.]+$/, '.mp4');
+                }
+            }
+        } catch (err) {
+            console.warn('[Upload] Transcodificação falhou, enviando original:', err.message);
+            // Continuar com arquivo original se a transcodificação falhar
+        }
+    }
+
     const { data, error } = await supabase.storage
         .from('media')
-        .upload(path, file, {
+        .upload(path, fileToUpload, {
             cacheControl: '3600',
             upsert: options.upsert || false,
             ...options
