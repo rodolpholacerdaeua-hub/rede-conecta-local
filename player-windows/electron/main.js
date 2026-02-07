@@ -3,8 +3,13 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
+const { execSync } = require('child_process');
 
 const { app, BrowserWindow, ipcMain, globalShortcut, protocol, powerSaveBlocker, net } = electron;
+
+// Flag de boot rápido: se o app demorou >5min após boot do Windows
+let isDelayedBoot = false;
+let bootDelaySeconds = 0;
 
 // Auto-Updater
 const { initAutoUpdater, checkForUpdates, installUpdate, isUpdateReady } = require('./updater');
@@ -201,6 +206,13 @@ function setupIpcHandlers() {
     ipcMain.handle('get-version', () => app.getVersion());
     ipcMain.handle('is-kiosk-mode', () => !app.isPackaged ? false : true);
 
+    // BLINDAGEM: Info de boot para skip de loading
+    ipcMain.handle('get-boot-info', () => ({
+        isDelayedBoot,
+        bootDelaySeconds: Math.round(bootDelaySeconds),
+        shouldFastStart: isDelayedBoot, // renderer usa pra pular animações
+    }));
+
     // Auto-updater handlers
     ipcMain.handle('check-for-updates', () => checkForUpdates());
     ipcMain.handle('install-update', () => installUpdate());
@@ -346,6 +358,38 @@ app.whenReady().then(async () => {
     console.log('[Electron] Modo:', app.isPackaged ? 'PRODUÇÃO (Kiosk)' : 'DESENVOLVIMENTO');
 
     // ============================================
+    // BLINDAGEM 1: Detecção de Boot Atrasado
+    // Se o app demorou >5min após boot do Windows,
+    // possivelmente ficou preso em Windows Update.
+    // ============================================
+    const BOOT_DELAY_THRESHOLD = 5 * 60; // 5 minutos em segundos
+    const systemUptime = os.uptime();
+    bootDelaySeconds = systemUptime;
+    isDelayedBoot = systemUptime > BOOT_DELAY_THRESHOLD;
+
+    console.log(`[BOOT] Uptime do sistema: ${Math.round(systemUptime)}s (${(systemUptime / 60).toFixed(1)} min)`);
+    if (isDelayedBoot) {
+        console.warn(`[BOOT] ⚠️ ATRASO DETECTADO: App iniciou ${Math.round(systemUptime / 60)} min após boot do Windows`);
+    } else {
+        console.log('[BOOT] ✅ Inicialização rápida — app iniciou dentro do tempo esperado');
+    }
+
+    // ============================================
+    // BLINDAGEM 2: Prioridade Alta do Processo
+    // ============================================
+    if (!app.isPackaged) {
+        console.log('[PRIORITY] Modo dev — prioridade não alterada');
+    } else {
+        try {
+            const pid = process.pid;
+            execSync(`wmic process where processid=${pid} CALL setpriority 128`, { stdio: 'ignore' });
+            console.log('[PRIORITY] ✅ Processo elevado para Alta Prioridade (PID:', pid, ')');
+        } catch (e) {
+            console.warn('[PRIORITY] ⚠️ Não foi possível elevar prioridade:', e.message);
+        }
+    }
+
+    // ============================================
     // CRASH GUARD - Verificar crash loops
     // ============================================
     crashGuard = new CrashGuard(app.getPath('userData'));
@@ -386,6 +430,62 @@ app.whenReady().then(async () => {
 
     // Inicializar auto-updater após criar janela
     initAutoUpdater(mainWindow);
+
+    // ============================================
+    // BLINDAGEM 3: Alerta de Boot Atrasado (Supabase Log)
+    // Envia WARN para terminal_logs se houve atraso
+    // ============================================
+    if (isDelayedBoot) {
+        mainWindow.webContents.once('did-finish-load', () => {
+            mainWindow.webContents.executeJavaScript(`
+                (async () => {
+                    try {
+                        if (window.__electronAPI?.sendLog) {
+                            await window.__electronAPI.sendLog('WARN', 'Atraso na inicialização detectado - Possível Windows Update', {
+                                systemUptime: ${Math.round(bootDelaySeconds)},
+                                delayMinutes: ${(bootDelaySeconds / 60).toFixed(1)},
+                                threshold: '5 min'
+                            });
+                        }
+                    } catch(e) { console.error('[BOOT-LOG]', e); }
+                })()
+            `);
+        });
+    }
+
+    // ============================================
+    // BLINDAGEM 4: Monitoramento de Foco (Watchdog)
+    // A cada 60s, garante que o player está em
+    // Always-on-Top e com foco total.
+    // ============================================
+    if (!app.isPackaged) {
+        console.log('[WATCHDOG] Modo dev — monitoramento de foco desativado');
+    } else {
+        setInterval(() => {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+
+            // Forçar Always on Top
+            if (!mainWindow.isAlwaysOnTop()) {
+                console.warn('[WATCHDOG] ⚠️ Janela perdeu Always-on-Top — restaurando');
+                mainWindow.setAlwaysOnTop(true, 'screen-saver');
+            }
+
+            // Forçar Foco
+            if (!mainWindow.isFocused()) {
+                console.warn('[WATCHDOG] ⚠️ Janela perdeu foco — trazendo para frente');
+                mainWindow.show();
+                mainWindow.focus();
+                mainWindow.moveTop();
+            }
+
+            // Garantir fullscreen
+            if (!mainWindow.isFullScreen() && !mainWindow.isKiosk) {
+                mainWindow.setFullScreen(true);
+            }
+        }, 60 * 1000); // A cada 1 minuto
+
+        console.log('[WATCHDOG] ✅ Monitoramento de foco ativo (intervalo: 60s)');
+    }
 });
 
 app.on('window-all-closed', () => {

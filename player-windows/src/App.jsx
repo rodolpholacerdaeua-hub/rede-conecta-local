@@ -181,14 +181,31 @@ function App() {
   // Sistema vertical-only: orientação fixa portrait (não precisa de state)
   const lastSentSettingsRef = useRef(null);
 
-  // Telemetria de Inicialização
+  // Telemetria de Inicialização + Fast-Start (Blindagem de Disponibilidade)
   useEffect(() => {
     remoteLog(terminalId, "INFO", "App.jsx Component Mounted", { version: CURRENT_VERSION });
-    const splashTimer = setTimeout(() => {
-      setShowSplash(false);
-      remoteLog(terminalId, "INFO", "Splash Screen Auto-Dismissed");
-    }, 10000);
-    return () => clearTimeout(splashTimer);
+
+    // Verificar se houve boot atrasado — splash rápido de 1s
+    let splashDuration = 10000; // padrão 10s
+    (async () => {
+      try {
+        if (window.electronAPI?.getBootInfo) {
+          const bootInfo = await window.electronAPI.getBootInfo();
+          if (bootInfo?.shouldFastStart) {
+            splashDuration = 1000; // 1s — vai direto pro conteúdo em cache
+            console.log('[FAST-START] ⚡ Boot atrasado detectado — splash reduzido para 1s');
+          }
+        }
+      } catch (e) { /* ignore */ }
+
+      const timer = setTimeout(() => {
+        setShowSplash(false);
+        remoteLog(terminalId, "INFO", "Splash Screen Auto-Dismissed", { duration: splashDuration });
+      }, splashDuration);
+
+      // Cleanup
+      return () => clearTimeout(timer);
+    })();
   }, [terminalId]);
 
   // 1. Electron/Native Communication & Hardware ID

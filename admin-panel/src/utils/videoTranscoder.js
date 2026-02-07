@@ -9,6 +9,46 @@ let ffmpegInstance = null;
 let ffmpegLoading = false;
 
 /**
+ * Verifica se o browser suporta transcodificação via ffmpeg.wasm
+ * @returns {{ capable: boolean, reason?: string, details: object }}
+ */
+export function checkTranscodeCapability() {
+    const details = {
+        crossOriginIsolated: !!self.crossOriginIsolated,
+        sharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
+        deviceMemory: navigator.deviceMemory || null, // GB (Chrome only)
+        hardwareConcurrency: navigator.hardwareConcurrency || 1,
+    };
+
+    // 1. SharedArrayBuffer é obrigatório para ffmpeg.wasm com threads
+    if (!details.sharedArrayBuffer) {
+        return {
+            capable: false,
+            reason: 'Seu navegador não suporta SharedArrayBuffer. Use Chrome/Edge em modo seguro (HTTPS) para transcodificar vídeos.',
+            details
+        };
+    }
+
+    // 2. crossOriginIsolated é necessário para performance
+    if (!details.crossOriginIsolated) {
+        // ffmpeg.wasm 0.12+ pode funcionar sem COOP/COEP em single-thread mode,
+        // então não bloqueamos, apenas avisamos
+        console.warn('[Transcoder] ⚠️ crossOriginIsolated=false — ffmpeg rodará em single-thread (mais lento)');
+    }
+
+    // 3. RAM mínima: 4GB recomendado para vídeos
+    if (details.deviceMemory && details.deviceMemory < 4) {
+        return {
+            capable: false,
+            reason: `Memória RAM insuficiente (${details.deviceMemory}GB). Recomendado: mínimo 4GB para conversão de vídeo.`,
+            details
+        };
+    }
+
+    return { capable: true, details };
+}
+
+/**
  * Inicializar ffmpeg.wasm (singleton, carrega uma vez)
  */
 async function getFFmpeg(onProgress) {
@@ -147,6 +187,21 @@ export async function processVideoFile(file, onProgress, onStatus) {
     // Verificar se é vídeo
     if (!file.type.startsWith('video/')) {
         return { file, wasTranscoded: false, originalCodec: 'N/A (imagem)' };
+    }
+
+    // Health check: verifica se o browser suporta ffmpeg.wasm
+    const capability = checkTranscodeCapability();
+    if (!capability.capable) {
+        console.warn(`[Transcoder] ⚠️ Transcoding indisponível: ${capability.reason}`);
+        console.warn('[Transcoder] Detalhes:', capability.details);
+        if (onStatus) onStatus(null);
+        return {
+            file,
+            wasTranscoded: false,
+            originalCodec: 'Não verificado (transcoding indisponível)',
+            transcodeSkipped: true,
+            skipReason: capability.reason
+        };
     }
 
     if (onStatus) onStatus('Analisando codec do vídeo...');

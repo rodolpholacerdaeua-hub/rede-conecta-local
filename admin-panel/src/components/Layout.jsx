@@ -29,6 +29,7 @@ const Layout = () => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     const isCliente = userData?.role === 'cliente';
+    const isParceiro = userData?.role === 'parceiro';
 
     const handleLogout = async () => {
         await logout();
@@ -36,17 +37,17 @@ const Layout = () => {
     };
 
     const menuItems = [
-        { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-        { icon: Monitor, label: 'Telas (Players)', path: '/players', hidden: isCliente },
-        { icon: Image, label: 'Minha Biblioteca', path: '/media' },
-        { icon: ListVideo, label: 'Minhas Campanhas', path: '/campaigns' },
-        { icon: ListVideo, label: 'Playlists Globais', path: '/playlists', hidden: isCliente },
+        { icon: LayoutDashboard, label: 'Dashboard', path: isParceiro ? '/partner' : '/dashboard' },
+        { icon: Monitor, label: 'Telas (Players)', path: '/players', hidden: isCliente || isParceiro },
+        { icon: Image, label: 'Minha Biblioteca', path: '/media', hidden: isParceiro },
+        { icon: ListVideo, label: 'Minhas Campanhas', path: '/campaigns', hidden: isParceiro },
+        { icon: ListVideo, label: 'Playlists Globais', path: '/playlists', hidden: isCliente || isParceiro },
         { icon: Package, label: 'Meu Plano', path: '/my-plan', hidden: !isCliente },
         { icon: CreditCard, label: 'Créditos & Finanças', path: '/finance' },
-        { icon: BarChart3, label: 'Relatórios PoP', path: '/reports' },
-        { icon: Users, label: 'Gestão de Usuários', path: '/users', hidden: isCliente },
-        { icon: UserCheck, label: 'Gestão de Leads', path: '/leads', hidden: isCliente },
-        { icon: Settings, label: 'Configurações', path: '/settings' },
+        { icon: BarChart3, label: 'Relatórios PoP', path: '/reports', hidden: isParceiro },
+        { icon: Users, label: 'Gestão de Usuários', path: '/users', hidden: isCliente || isParceiro },
+        { icon: UserCheck, label: 'Gestão de Leads', path: '/leads', hidden: isCliente || isParceiro },
+        { icon: Settings, label: 'Configurações', path: '/settings', hidden: isParceiro },
     ];
 
     return (

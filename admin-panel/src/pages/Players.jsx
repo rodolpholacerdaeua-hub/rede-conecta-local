@@ -729,6 +729,58 @@ const Players = () => {
 
             // Sistema vertical-only: orientação fixa portrait
 
+            // ── Vinculação Rígida 1:1: Criar Playlist + 13 Slots ──
+            const SLOT_TYPES = [
+                'global',   // 0
+                'partner',  // 1
+                'local',    // 2
+                'local',    // 3
+                'local',    // 4
+                'local',    // 5
+                'local',    // 6
+                'dynamic',  // 7
+                'local',    // 8
+                'local',    // 9
+                'local',    // 10
+                'local',    // 11
+                'local',    // 12
+            ];
+
+            const playlistName = `Playlist - ${newName}`;
+            const { data: newPlaylist, error: playlistError } = await supabase
+                .from('playlists')
+                .insert({
+                    name: playlistName,
+                    slot_count: 13,
+                    loop_duration: 180,
+                    status: 'active',
+                    owner_id: currentUser.id,
+                    slots: Array(13).fill(null)
+                })
+                .select()
+                .single();
+
+            if (playlistError) throw playlistError;
+
+            // Criar 13 slots vazios com tipos corretos
+            const slotsToInsert = SLOT_TYPES.map((type, index) => ({
+                playlist_id: newPlaylist.id,
+                slot_index: index,
+                slot_type: type,
+                media_id: null,
+                duration: type === 'global' ? 10 : type === 'dynamic' ? 15 : 15
+            }));
+
+            const { error: slotsError } = await supabase
+                .from('playlist_slots')
+                .insert(slotsToInsert);
+
+            if (slotsError) {
+                console.error('⚠️ Erro ao criar slots:', slotsError);
+            }
+
+            console.log(`📋 Playlist "${playlistName}" criada com 13 slots`);
+
             const newTerminal = await createDocument('terminals', {
                 name: newName,
                 group: newGroup || 'Default',
@@ -739,7 +791,7 @@ const Players = () => {
                 current_media: 'Aguardando sincronia...',
                 created_at: new Date().toISOString(),
                 power_mode: 'auto',
-                assigned_playlist_id: null,
+                assigned_playlist_id: newPlaylist.id,
                 hardware_id: hwId,
                 owner_id: currentUser.id
             });

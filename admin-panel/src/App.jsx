@@ -15,6 +15,7 @@ import Leads from './pages/Leads';
 import MyPlan from './pages/MyPlan';
 import Player from './pages/Player';
 import PlaybackReports from './pages/PlaybackReports';
+import PartnerDashboard from './pages/PartnerDashboard';
 import AIAgentSimulator from './components/AIAgentSimulator';
 import Layout from './components/Layout';
 
@@ -53,6 +54,7 @@ function App() {
             </PrivateRoute>
           }>
             <Route path="/dashboard" element={<SafePage><Dashboard /></SafePage>} />
+            <Route path="/partner" element={<SafePage><PartnerDashboard /></SafePage>} />
             <Route path="/players" element={<SafePage><Players /></SafePage>} />
             <Route path="/media" element={<SafePage><MediaLibrary /></SafePage>} />
             <Route path="/campaigns" element={<SafePage><Campaigns /></SafePage>} />

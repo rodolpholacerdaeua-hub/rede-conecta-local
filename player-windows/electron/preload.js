@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Indicador de que estamos no Electron
     isElectron: true,
 
+    // Info de boot (blindagem de disponibilidade)
+    getBootInfo: () => ipcRenderer.invoke('get-boot-info'),
+
     // ============================================
     // AUTO-UPDATER APIs
     // ============================================
