@@ -28,6 +28,8 @@ let mainWindow = null;
 let cacheManager = null;
 let mpvPlayer = null;
 let powerSaveId = null;
+let isMpvPlaying = false;
+let currentPlayId = 0;
 let crashGuard = null;
 
 // ============================================
@@ -271,8 +273,6 @@ function setupIpcHandlers() {
     // ============================================
     // MPV PLAYER HANDLERS (Native Video Playback)
     // ============================================
-    let isMpvPlaying = false;
-    let currentPlayId = 0;
 
     ipcMain.handle('mpv-play-video', async (_, filePath) => {
         if (!mpvPlayer) return { success: false, error: 'mpv not initialized' };
