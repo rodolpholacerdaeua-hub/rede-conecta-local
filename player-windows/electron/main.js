@@ -17,8 +17,7 @@ const { initAutoUpdater, checkForUpdates, installUpdate, isUpdateReady } = requi
 // Cache Manager para Offline-First
 const CacheManager = require('./cacheManager');
 
-// mpv Player para vídeos (suporta TODOS os codecs)
-const MpvPlayer = require('./mpvPlayer');
+// mpvPlayer.js REMOVIDO — vídeo agora usa HTML5 <video> nativo do Chromium
 
 // Migração e Proteção contra Crash Loops
 const Migrator = require('./migrator');
@@ -26,10 +25,7 @@ const CrashGuard = require('./crashGuard');
 
 let mainWindow = null;
 let cacheManager = null;
-let mpvPlayer = null;
 let powerSaveId = null;
-let isMpvPlaying = false;
-let currentPlayId = 0;
 let crashGuard = null;
 
 // ============================================
@@ -270,93 +266,6 @@ function setupIpcHandlers() {
         cacheManager.clearAll();
     });
 
-    // ============================================
-    // MPV PLAYER HANDLERS (Native Video Playback)
-    // ============================================
-
-    // Helper para re-focar a janela agressivamente após mpv fechar
-    const refocusWindow = () => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        console.log('[REFOCUS] Iniciando sequência de re-foco tripla');
-
-        // Pulso imediato
-        mainWindow.setAlwaysOnTop(true, 'screen-saver');
-        mainWindow.moveTop();
-        mainWindow.focus();
-        if (!mainWindow.isFullScreen()) mainWindow.setFullScreen(true);
-
-        // Pulso 200ms — garante que cobriu qualquer janela que apareceu
-        setTimeout(() => {
-            if (!mainWindow || mainWindow.isDestroyed()) return;
-            mainWindow.setAlwaysOnTop(true, 'screen-saver');
-            mainWindow.moveTop();
-            mainWindow.focus();
-        }, 200);
-
-        // Pulso 500ms — confirmação final
-        setTimeout(() => {
-            if (!mainWindow || mainWindow.isDestroyed()) return;
-            mainWindow.setAlwaysOnTop(true, 'screen-saver');
-            mainWindow.moveTop();
-            mainWindow.focus();
-        }, 500);
-    };
-
-    ipcMain.handle('mpv-play-video', async (_, filePath) => {
-        if (!mpvPlayer) return { success: false, error: 'mpv not initialized' };
-
-        const myPlayId = ++currentPlayId;
-        isMpvPlaying = true;
-
-        try {
-            console.log(`[IPC] mpv-play-video [ID:${myPlayId}]:`, filePath);
-
-            // Telemetria detalhada para o Supabase (via renderer)
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('remote-log', {
-                    level: 'INFO',
-                    message: `Iniciando mpv [ID:${myPlayId}]`,
-                    metadata: { filePath: filePath.substring(0, 50) + '...' }
-                });
-            }
-
-            mpvPlayer.play(filePath).then(() => {
-                // Só enviar o evento se este ainda for o play atual
-                if (myPlayId === currentPlayId) {
-                    console.log(`[IPC] mpv video [ID:${myPlayId}] ended naturally`);
-                    isMpvPlaying = false;
-                    if (mainWindow && !mainWindow.isDestroyed()) {
-                        mainWindow.webContents.send('mpv-video-ended', { success: true });
-                        refocusWindow();
-                    }
-                }
-            }).catch((err) => {
-                if (myPlayId === currentPlayId) {
-                    console.error(`[IPC] mpv video [ID:${myPlayId}] error:`, err.message);
-                    isMpvPlaying = false;
-                    if (mainWindow && !mainWindow.isDestroyed()) {
-                        mainWindow.webContents.send('mpv-video-ended', { success: false, error: err.message });
-                        refocusWindow();
-                    }
-                }
-            });
-            return { success: true };
-        } catch (err) {
-            isMpvPlaying = false;
-            console.error('[IPC] mpv play error:', err.message);
-            return { success: false, error: err.message };
-        }
-    });
-
-    ipcMain.handle('mpv-stop-video', () => {
-        isMpvPlaying = false;
-        if (mpvPlayer) mpvPlayer.stop();
-        return { success: true };
-    });
-
-    ipcMain.handle('mpv-is-available', () => {
-        return mpvPlayer ? mpvPlayer.isAvailable() : false;
-    });
 
     // Ponte de logs para o renderer (para telemetria remota)
     ipcMain.on('remote-log-send', (event, { level, message, metadata }) => {
@@ -518,9 +427,8 @@ app.whenReady().then(async () => {
     // Registrar protocolo para mídias locais
     setupMediaProtocol();
 
-    // Inicializar mpv player
-    mpvPlayer = new MpvPlayer();
-    console.log('[Electron] MpvPlayer initialized, available:', mpvPlayer.isAvailable());
+    // mpvPlayer REMOVIDO — vídeos agora tocam via HTML5 <video> nativo
+    console.log('[Electron] Vídeo nativo HTML5 ativado (mpv removido)');
 
     setupIpcHandlers();
     setupAutoStart();
@@ -553,7 +461,7 @@ app.whenReady().then(async () => {
 
     // ============================================
     // BLINDAGEM 4: Monitoramento de Foco (Watchdog)
-    // A cada 60s, garante que o player está em
+    // A cada 10s, garante que o player está em
     // Always-on-Top e com foco total.
     // ============================================
     if (!app.isPackaged) {
@@ -561,13 +469,6 @@ app.whenReady().then(async () => {
     } else {
         setInterval(() => {
             if (!mainWindow || mainWindow.isDestroyed()) return;
-
-            // BLINDAGEM: Não roubar o foco se o mpv estiver rodando!
-            // Se o Electron ganhar foco, ele cobre o mpv (mesmo que ambos sejam ontop)
-            if (isMpvPlaying) {
-                console.log('[WATCHDOG] mpv em execução — pulando reforço de foco do Electron');
-                return;
-            }
 
             // Forçar Always on Top
             if (!mainWindow.isAlwaysOnTop()) {

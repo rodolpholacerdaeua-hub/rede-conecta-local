@@ -64,31 +64,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
 
     // ============================================
-    // MPV PLAYER APIs (Native Video Playback)
-    // ============================================
-
-    // Tocar vídeo via mpv (caminho local ou URL remota)
-    playVideo: (filePath) => ipcRenderer.invoke('mpv-play-video', filePath),
-
-    // Parar vídeo mpv
-    stopVideo: () => ipcRenderer.invoke('mpv-stop-video'),
-
-    // Verificar se mpv está disponível
-    isMpvAvailable: () => ipcRenderer.invoke('mpv-is-available'),
-
-    // Listener para quando o vídeo do mpv termina
-    onMpvVideoEnded: (callback) => {
-        // Remover listeners anteriores para evitar acumulação
-        ipcRenderer.removeAllListeners('mpv-video-ended');
-        ipcRenderer.on('mpv-video-ended', (event, data) => callback(data));
-    },
-
-    // Remover listener de mpv (para cleanup no React)
-    removeMpvVideoEndedListener: () => {
-        ipcRenderer.removeAllListeners('mpv-video-ended');
-    },
-
-    // ============================================
     // RSS FEED API (CORS-free via main process)
     // ============================================
     fetchRss: (feedUrl) => ipcRenderer.invoke('fetch-rss', feedUrl),
@@ -100,4 +75,3 @@ contextBridge.exposeInMainWorld('electronAPI', {
 });
 
 console.log('[Preload] Electron APIs exposed (v17 Offline-First)');
-
