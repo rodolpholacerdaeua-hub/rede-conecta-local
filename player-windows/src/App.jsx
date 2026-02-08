@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './index.css';
 import { Monitor, Loader2, Database, Bug } from 'lucide-react';
 import UpdateNotification from './components/UpdateNotification';
-import NewsWidget from './components/NewsWidget';
+import NewsSlot from './components/NewsSlot';
 
 // Supabase Client
 import {
@@ -447,17 +447,17 @@ function App() {
         .filter(slot => slot.media || (slot.slot_type === 'dynamic' && slot.dynamic_config?.url))
         .sort((a, b) => a.slot_index - b.slot_index)
         .map(slot => {
-          // SLOT DINÂMICO: Webview de notícias
+          // SLOT DINÂMICO: Feed RSS nativo
           if (slot.slot_type === 'dynamic' && slot.dynamic_config?.url) {
             return {
               id: `dynamic-${slot.slot_index}`,
               name: 'Notícias',
               url: slot.dynamic_config.url,
-              type: 'webview',
+              type: 'rss',
               duration: slot.duration || 15,
               slotType: 'dynamic',
               orientation: 'portrait',
-              zoomLevel: slot.dynamic_config.zoom || 2.0,
+              refreshMinutes: slot.dynamic_config.refreshMinutes || 10,
               startDate: null,
               endDate: null
             };
@@ -500,9 +500,8 @@ function App() {
           return false;
         }
       }
-      // 3. Integridade URL (webview items têm URLs diferentes)
-      if (item.type === 'webview') {
-        // Webview: apenas verificar se tem URL
+      // 3. RSS items: apenas verificar se tem URL
+      if (item.type === 'rss') {
         return !!item.url;
       }
       if (!item.url || item.url.length < 10 || (!item.url.startsWith('http://') && !item.url.startsWith('https://'))) {
@@ -821,8 +820,8 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
   }, [currentItem?.id, terminalId, cacheMap]);
 
   // Detectar tipo de mídia
-  const isCurrentWebview = currentItem?.type === 'webview';
-  const isCurrentVideo = !isCurrentWebview && currentItem && (
+  const isCurrentRss = currentItem?.type === 'rss';
+  const isCurrentVideo = !isCurrentRss && currentItem && (
     currentItem.type === 'video' ||
     currentItem.url?.includes('.mp4') ||
     currentItem.url?.includes('.webm') ||
@@ -865,13 +864,13 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
     // Iniciar animação de fade-in
     const fadeTimer = setTimeout(() => setVisible(true), 100);
 
-    if (isCurrentWebview) {
-      // === WEBVIEW: Slot dinâmico (notícias) ===
+    if (isCurrentRss) {
+      // === RSS: Slot dinâmico (notícias nativas) ===
       setMpvPlaying(false);
-      console.log(`[Player] 📡 Webview slot: ${currentItem.name} (${currentItem.duration}s)`);
+      console.log(`[Player] 📰 RSS slot: ${currentItem.name} (${currentItem.duration}s)`);
       const duration = (currentItem.duration || 15) * 1000;
       const timer = setTimeout(() => {
-        skipToNext(); // Ao sair, React desmonta o NewsWidget → lifecycle kill
+        skipToNext();
       }, duration);
       return () => {
         clearTimeout(fadeTimer);
@@ -952,11 +951,11 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
         <div className="mpv-placeholder" />
       ) : (
         <div className={`media-wrapper ${visible ? 'visible' : ''}`}>
-          {isCurrentWebview ? (
-            <NewsWidget
-              key={`webview-${currentItem.id}-${playCount}`}
+          {isCurrentRss ? (
+            <NewsSlot
+              key={`rss-${currentItem.id}`}
               url={currentItem.url}
-              zoomLevel={currentItem.zoomLevel || 2.0}
+              refreshMinutes={currentItem.refreshMinutes || 10}
               onError={() => skipToNext()}
             />
           ) : isCurrentVideo ? (

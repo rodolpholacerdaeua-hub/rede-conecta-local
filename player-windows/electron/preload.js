@@ -88,6 +88,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.removeAllListeners('mpv-video-ended');
     },
 
+    // ============================================
+    // RSS FEED API (CORS-free via main process)
+    // ============================================
+    fetchRss: (feedUrl) => ipcRenderer.invoke('fetch-rss', feedUrl),
+
     // Listener para logs do main process
     onRemoteLog: (callback) => {
         ipcRenderer.on('remote-log', (event, data) => callback(data));

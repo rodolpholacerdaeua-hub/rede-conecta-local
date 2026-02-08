@@ -130,7 +130,6 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            webviewTag: true, // Habilitar <webview> para slot dinâmico (notícias)
             preload: path.join(__dirname, 'preload.js')
         }
     });
@@ -354,6 +353,51 @@ function setupIpcHandlers() {
     ipcMain.on('remote-log-send', (event, { level, message, metadata }) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('remote-log', { level, message, metadata });
+        }
+    });
+
+    // ============================================
+    // RSS FEED HANDLER (CORS-free via Node.js)
+    // ============================================
+    ipcMain.handle('fetch-rss', async (_, feedUrl) => {
+        try {
+            console.log(`[IPC] fetch-rss: ${feedUrl}`);
+            const response = await fetch(feedUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RedeConecta/1.0)' },
+                signal: AbortSignal.timeout(10000)
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const xml = await response.text();
+
+            // Parsear XML usando regex (leve, sem dependências)
+            const items = [];
+            const itemRegex = /<item>(.*?)<\/item>/gs;
+            let match;
+            while ((match = itemRegex.exec(xml)) !== null && items.length < 15) {
+                const block = match[1];
+                const get = (tag) => {
+                    const m = block.match(new RegExp(`<${tag}[^>]*><!\\[CDATA\\[(.+?)\\]\\]><\\/${tag}>`, 's'))
+                        || block.match(new RegExp(`<${tag}[^>]*>([^<]+)<\\/${tag}>`, 's'));
+                    return m ? m[1].trim() : '';
+                };
+                // Imagem: tentar media:content, enclosure, ou extrair do description
+                let image = '';
+                const mediaMatch = block.match(/url=["']([^"']+\.(jpg|jpeg|png|webp)[^"']*)["']/i);
+                if (mediaMatch) image = mediaMatch[1];
+
+                items.push({
+                    title: get('title'),
+                    description: get('description').replace(/<[^>]+>/g, '').substring(0, 200),
+                    pubDate: get('pubDate'),
+                    link: get('link'),
+                    image
+                });
+            }
+            console.log(`[IPC] fetch-rss: parsed ${items.length} items`);
+            return { success: true, items, fetchedAt: Date.now() };
+        } catch (err) {
+            console.error('[IPC] fetch-rss error:', err.message);
+            return { success: false, error: err.message, items: [] };
         }
     });
 

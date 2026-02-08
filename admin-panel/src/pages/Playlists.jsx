@@ -234,7 +234,6 @@ const Playlists = () => {
     const [showDynamicModal, setShowDynamicModal] = useState(false);
     const [dynamicSlotIndex, setDynamicSlotIndex] = useState(null);
     const [dynamicUrl, setDynamicUrl] = useState('');
-    const [dynamicZoom, setDynamicZoom] = useState('2.0');
 
     // Carregar playlists do Supabase (com prevenção de race conditions - Context7)
     useEffect(() => {
@@ -368,10 +367,8 @@ const Playlists = () => {
         // Slot dinâmico: abrir modal de configuração
         if (slotDef.type === 'dynamic') {
             const currentUrl = slots[index]?.dynamic_config?.url || slots[index]?.url || '';
-            const currentZoom = slots[index]?.dynamic_config?.zoom || 2.0;
             setDynamicSlotIndex(index);
             setDynamicUrl(currentUrl);
-            setDynamicZoom(String(currentZoom));
             setShowDynamicModal(true);
             return;
         }
@@ -386,16 +383,15 @@ const Playlists = () => {
         const slotDef = SLOT_CYCLE[dynamicSlotIndex % SLOT_CYCLE.length];
 
         if (dynamicUrl.trim()) {
-            const zoom = parseFloat(dynamicZoom) || 2.0;
             const newSlots = [...slots];
             newSlots[dynamicSlotIndex] = {
-                id: `webview-${dynamicSlotIndex}`,
-                name: 'Notícias (Webview)',
+                id: `rss-${dynamicSlotIndex}`,
+                name: 'Notícias (RSS)',
                 url: dynamicUrl.trim(),
-                type: 'webview',
+                type: 'rss',
                 thumbnail: null,
                 duration: slotDef.duration || 15,
-                dynamic_config: { url: dynamicUrl.trim(), zoom, type: 'webview' }
+                dynamic_config: { url: dynamicUrl.trim(), type: 'rss', refreshMinutes: 10 }
             };
             setSlots(newSlots);
         } else {
@@ -662,46 +658,24 @@ const Playlists = () => {
                             </div>
                         </div>
 
-                        {/* Body */}
                         <div className="p-6 space-y-5">
-                            {/* URL */}
+                            {/* URL do Feed RSS */}
                             <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">
                                     <Link2 className="w-4 h-4 inline mr-1" />
-                                    URL ou Código Embed
+                                    URL do Feed RSS
                                 </label>
-                                <textarea
+                                <input
+                                    type="url"
                                     value={dynamicUrl}
                                     onChange={(e) => setDynamicUrl(e.target.value)}
-                                    placeholder={"Cole aqui a URL ou código embed do widget:\n\nEx URL: https://exemplo.com/noticias\nEx Embed: <!-- start feedwind code --> <script ...></script>"}
-                                    rows={4}
-                                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm focus:border-teal-400 focus:ring-2 focus:ring-teal-100 outline-none transition-all font-mono resize-none"
+                                    placeholder="https://g1.globo.com/dynamo/rio-de-janeiro/rss2.xml"
+                                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm focus:border-teal-400 focus:ring-2 focus:ring-teal-100 outline-none transition-all"
                                     autoFocus
                                 />
                                 <p className="mt-1.5 text-xs text-slate-400">
-                                    Aceita URL direta ou código embed (<a href="https://feed.mikle.com" target="_blank" rel="noopener noreferrer" className="text-teal-500 underline">FeedWind</a>, RSS, etc.)
+                                    Cole a URL de qualquer feed RSS. Atualização automática a cada 10 minutos.
                                 </p>
-                            </div>
-
-                            {/* Zoom */}
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">
-                                    🔍 Nível de Zoom — {dynamicZoom}x
-                                </label>
-                                <input
-                                    type="range"
-                                    min="1.0"
-                                    max="4.0"
-                                    step="0.5"
-                                    value={dynamicZoom}
-                                    onChange={(e) => setDynamicZoom(e.target.value)}
-                                    className="w-full accent-teal-500"
-                                />
-                                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-                                    <span>1x (normal)</span>
-                                    <span>2x (recomendado)</span>
-                                    <span>4x (muito grande)</span>
-                                </div>
                             </div>
                         </div>
 
