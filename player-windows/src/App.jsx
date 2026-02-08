@@ -901,6 +901,13 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
         ) : isCurrentVideo ? (
           <video
             key={`${currentItem.id}-${playCount}`}
+            ref={(el) => {
+              if (el) {
+                el.play().catch(err => {
+                  console.warn('[Player] Video play() failed:', err.message);
+                });
+              }
+            }}
             src={mediaUrl}
             autoPlay
             muted
