@@ -78,44 +78,35 @@ const CLEANUP_CSS = `
 `;
 
 /**
- * Resolver a URL do conteúdo:
- * - Se for URL normal (http/https), usar direto
- * - Se for código embed (começa com < ), envolver em HTML e usar data: URL
+ * Gerar HTML wrapper para código embed
  */
-const resolveContentUrl = (content) => {
-    if (!content) return '';
-    const trimmed = content.trim();
-
-    // Detectar código embed (HTML/script)
-    if (trimmed.startsWith('<')) {
-        const htmlPage = `<!DOCTYPE html>
+const buildEmbedHtml = (embedCode) => {
+    return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
+        html, body { 
             background: #0a0a0a; 
-            width: 100vw; 
-            height: 100vh; 
+            width: 100%; 
+            height: 100%; 
             overflow: hidden;
+        }
+        body {
             display: flex;
             align-items: flex-start;
             justify-content: center;
         }
         body > * { width: 100% !important; max-width: 100% !important; }
+        iframe { width: 100% !important; height: 100vh !important; border: none !important; }
     </style>
 </head>
 <body>
-    ${trimmed}
+    ${embedCode}
 </body>
 </html>`;
-        return 'data:text/html;charset=utf-8,' + encodeURIComponent(htmlPage);
-    }
-
-    // URL normal
-    return trimmed;
 };
 
 const NewsWidget = ({ url, zoomLevel = 2.0, onError }) => {
@@ -124,7 +115,6 @@ const NewsWidget = ({ url, zoomLevel = 2.0, onError }) => {
     const [loaded, setLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
     const isEmbedCode = url?.trim().startsWith('<');
-    const resolvedUrl = resolveContentUrl(url);
 
     // Callback para quando a webview termina de carregar
     const handleDidStopLoading = useCallback(() => {
@@ -180,6 +170,30 @@ const NewsWidget = ({ url, zoomLevel = 2.0, onError }) => {
         };
         wv.addEventListener('new-window', handleNewWindow);
 
+        // Para embed codes: injetar HTML via executeJavaScript após dom-ready
+        let handleDomReady = null;
+        if (isEmbedCode) {
+            handleDomReady = () => {
+                const htmlContent = buildEmbedHtml(url.trim());
+                // Escapar para injeção segura em string JS
+                const escaped = htmlContent
+                    .replace(/\\/g, '\\\\')
+                    .replace(/`/g, '\\`')
+                    .replace(/\$/g, '\\$');
+                wv.executeJavaScript(`document.open(); document.write(\`${escaped}\`); document.close();`)
+                    .then(() => {
+                        console.log('[NewsWidget] ✅ Embed code injected via document.write()');
+                        // Dar tempo para o script externo carregar
+                        setTimeout(() => setLoaded(true), 2000);
+                    })
+                    .catch(err => {
+                        console.error('[NewsWidget] ❌ Embed injection error:', err);
+                        setHasError(true);
+                    });
+            };
+            wv.addEventListener('dom-ready', handleDomReady);
+        }
+
         // LIFECYCLE KILL: Destruir webview ao desmontar o componente
         return () => {
             console.log('[NewsWidget] 🔴 Destroying webview (lifecycle kill)');
@@ -187,6 +201,7 @@ const NewsWidget = ({ url, zoomLevel = 2.0, onError }) => {
                 wv.removeEventListener('did-stop-loading', handleDidStopLoading);
                 wv.removeEventListener('did-fail-load', handleDidFailLoad);
                 wv.removeEventListener('new-window', handleNewWindow);
+                if (handleDomReady) wv.removeEventListener('dom-ready', handleDomReady);
 
                 // Parar carregamento
                 wv.stop();
@@ -205,7 +220,7 @@ const NewsWidget = ({ url, zoomLevel = 2.0, onError }) => {
                 console.warn('[NewsWidget] Cleanup error (safe to ignore):', err.message);
             }
         };
-    }, [url, handleDidStopLoading, handleDidFailLoad]);
+    }, [url, isEmbedCode, handleDidStopLoading, handleDidFailLoad]);
 
     if (hasError) {
         return (
@@ -232,11 +247,10 @@ const NewsWidget = ({ url, zoomLevel = 2.0, onError }) => {
         >
             <webview
                 ref={webviewRef}
-                src={resolvedUrl}
+                src={isEmbedCode ? 'about:blank' : url}
                 partition="persist:news"
                 useragent={CHROME_USER_AGENT}
                 allowpopups="false"
-                disablewebsecurity="false"
                 style={{
                     width: '100%',
                     height: '100%',
