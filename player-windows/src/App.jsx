@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './index.css';
 import { Monitor, Loader2, Database, Bug } from 'lucide-react';
 import UpdateNotification from './components/UpdateNotification';
+import NewsWidget from './components/NewsWidget';
 
 // Supabase Client
 import {
@@ -443,19 +444,37 @@ function App() {
     // Processar slots da playlist
     if (playlist?.playlist_slots) {
       items = playlist.playlist_slots
-        .filter(slot => slot.media)
+        .filter(slot => slot.media || (slot.slot_type === 'dynamic' && slot.dynamic_config?.url))
         .sort((a, b) => a.slot_index - b.slot_index)
-        .map(slot => ({
-          id: slot.media.id,
-          name: slot.media.name,
-          url: slot.media.url,
-          type: slot.media.type,
-          duration: slot.duration || slot.media.duration || 10,
-          slotType: slot.slot_type,
-          orientation: 'portrait',
-          startDate: slot.media.start_date || slot.start_date || null,
-          endDate: slot.media.end_date || slot.end_date || null
-        }));
+        .map(slot => {
+          // SLOT DINÂMICO: Webview de notícias
+          if (slot.slot_type === 'dynamic' && slot.dynamic_config?.url) {
+            return {
+              id: `dynamic-${slot.slot_index}`,
+              name: 'Notícias',
+              url: slot.dynamic_config.url,
+              type: 'webview',
+              duration: slot.duration || 15,
+              slotType: 'dynamic',
+              orientation: 'portrait',
+              zoomLevel: slot.dynamic_config.zoom || 2.0,
+              startDate: null,
+              endDate: null
+            };
+          }
+          // SLOT NORMAL: Mídia
+          return {
+            id: slot.media.id,
+            name: slot.media.name,
+            url: slot.media.url,
+            type: slot.media.type,
+            duration: slot.duration || slot.media.duration || 10,
+            slotType: slot.slot_type,
+            orientation: 'portrait',
+            startDate: slot.media.start_date || slot.start_date || null,
+            endDate: slot.media.end_date || slot.end_date || null
+          };
+        });
       console.log("[PLAYLIST] Loaded", items.length, "items from slots");
     }
 
@@ -481,7 +500,11 @@ function App() {
           return false;
         }
       }
-      // 3. Integridade URL
+      // 3. Integridade URL (webview items têm URLs diferentes)
+      if (item.type === 'webview') {
+        // Webview: apenas verificar se tem URL
+        return !!item.url;
+      }
       if (!item.url || item.url.length < 10 || (!item.url.startsWith('http://') && !item.url.startsWith('https://'))) {
         console.warn(`[FILTER] "${item.name}" URL inválida`);
         return false;
@@ -797,8 +820,9 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
     console.log(`[PoP] Buffered: "${currentItem.name}" (cached: ${!!cacheMap[currentItem.id]})`);
   }, [currentItem?.id, terminalId, cacheMap]);
 
-  // Detectar se é vídeo
-  const isCurrentVideo = currentItem && (
+  // Detectar tipo de mídia
+  const isCurrentWebview = currentItem?.type === 'webview';
+  const isCurrentVideo = !isCurrentWebview && currentItem && (
     currentItem.type === 'video' ||
     currentItem.url?.includes('.mp4') ||
     currentItem.url?.includes('.webm') ||
@@ -841,7 +865,19 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
     // Iniciar animação de fade-in
     const fadeTimer = setTimeout(() => setVisible(true), 100);
 
-    if (isCurrentVideo && window.electronAPI?.playVideo) {
+    if (isCurrentWebview) {
+      // === WEBVIEW: Slot dinâmico (notícias) ===
+      setMpvPlaying(false);
+      console.log(`[Player] 📡 Webview slot: ${currentItem.name} (${currentItem.duration}s)`);
+      const duration = (currentItem.duration || 15) * 1000;
+      const timer = setTimeout(() => {
+        skipToNext(); // Ao sair, React desmonta o NewsWidget → lifecycle kill
+      }, duration);
+      return () => {
+        clearTimeout(fadeTimer);
+        clearTimeout(timer);
+      };
+    } else if (isCurrentVideo && window.electronAPI?.playVideo) {
       // === VÍDEO: Usar mpv nativo ===
       const videoPath = getMpvPath(currentItem);
       console.log(`[Player] Triggering mpv for: ${currentItem.name}`);
@@ -885,7 +921,7 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
         clearTimeout(timer);
       };
     }
-  }, [currentIndex, currentItem, items, isCurrentVideo, playCount, skipToNext]);
+  }, [currentIndex, currentItem, items, isCurrentVideo, isCurrentWebview, playCount, skipToNext]);
 
   if (!currentItem) {
     return <div style={{ color: 'white' }}>Carregando mídia...</div>;
@@ -916,7 +952,14 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
         <div className="mpv-placeholder" />
       ) : (
         <div className={`media-wrapper ${visible ? 'visible' : ''}`}>
-          {isCurrentVideo ? (
+          {isCurrentWebview ? (
+            <NewsWidget
+              key={`webview-${currentItem.id}-${playCount}`}
+              url={currentItem.url}
+              zoomLevel={currentItem.zoomLevel || 2.0}
+              onError={() => skipToNext()}
+            />
+          ) : isCurrentVideo ? (
             <video
               key={`${currentItem.id}-${playCount}`}
               src={mediaUrl}

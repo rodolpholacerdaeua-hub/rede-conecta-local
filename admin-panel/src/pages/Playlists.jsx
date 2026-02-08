@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Play, Plus, Clock, Trash2, Save, Check, FileVideo, Monitor,
     Image as ImageIcon, Globe, Sparkles, Zap, Building2, Megaphone,
-    Newspaper, GripVertical, X
+    Newspaper, GripVertical, X, Link2
 } from 'lucide-react';
 import { supabase, createPlaylist, updatePlaylist, deletePlaylist, listPlaylists, listMedia } from '../supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -230,6 +230,11 @@ const Playlists = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [selectedSlotIndex, setSelectedSlotIndex] = useState(null);
     const [showSelector, setShowSelector] = useState(false);
+    // Modal do slot dinâmico
+    const [showDynamicModal, setShowDynamicModal] = useState(false);
+    const [dynamicSlotIndex, setDynamicSlotIndex] = useState(null);
+    const [dynamicUrl, setDynamicUrl] = useState('');
+    const [dynamicZoom, setDynamicZoom] = useState('2.0');
 
     // Carregar playlists do Supabase (com prevenção de race conditions - Context7)
     useEffect(() => {
@@ -296,15 +301,29 @@ const Playlists = () => {
             // Converter para o formato de array de 13 posições
             const slotsArray = Array(13).fill(null);
             data?.forEach(slot => {
-                if (slot.slot_index >= 0 && slot.slot_index < 13 && slot.media) {
-                    slotsArray[slot.slot_index] = {
-                        id: slot.media.id,
-                        name: slot.media.name,
-                        url: slot.media.url,
-                        type: slot.media.type,
-                        thumbnail: slot.media.type === 'image' ? slot.media.url : null,
-                        duration: slot.duration || slot.media.duration || 10
-                    };
+                if (slot.slot_index >= 0 && slot.slot_index < 13) {
+                    // Slot dinâmico com webview (sem mídia)
+                    if (slot.slot_type === 'dynamic' && slot.dynamic_config?.url) {
+                        slotsArray[slot.slot_index] = {
+                            id: `webview-${slot.slot_index}`,
+                            name: 'Notícias (Webview)',
+                            url: slot.dynamic_config.url,
+                            type: 'webview',
+                            thumbnail: null,
+                            duration: slot.duration || 15,
+                            dynamic_config: slot.dynamic_config
+                        };
+                    } else if (slot.media) {
+                        // Slot normal com mídia
+                        slotsArray[slot.slot_index] = {
+                            id: slot.media.id,
+                            name: slot.media.name,
+                            url: slot.media.url,
+                            type: slot.media.type,
+                            thumbnail: slot.media.type === 'image' ? slot.media.url : null,
+                            duration: slot.duration || slot.media.duration || 10
+                        };
+                    }
                 }
             });
             setSlots(slotsArray);
@@ -344,8 +363,50 @@ const Playlists = () => {
     };
 
     const handleSlotClick = (index) => {
+        const slotDef = SLOT_CYCLE[index % SLOT_CYCLE.length];
+
+        // Slot dinâmico: abrir modal de configuração
+        if (slotDef.type === 'dynamic') {
+            const currentUrl = slots[index]?.dynamic_config?.url || slots[index]?.url || '';
+            const currentZoom = slots[index]?.dynamic_config?.zoom || 2.0;
+            setDynamicSlotIndex(index);
+            setDynamicUrl(currentUrl);
+            setDynamicZoom(String(currentZoom));
+            setShowDynamicModal(true);
+            return;
+        }
+
+        // Outros slots: abrir seletor de mídia
         setSelectedSlotIndex(index);
         setShowSelector(true);
+    };
+
+    const handleSaveDynamicConfig = () => {
+        if (dynamicSlotIndex === null) return;
+        const slotDef = SLOT_CYCLE[dynamicSlotIndex % SLOT_CYCLE.length];
+
+        if (dynamicUrl.trim()) {
+            const zoom = parseFloat(dynamicZoom) || 2.0;
+            const newSlots = [...slots];
+            newSlots[dynamicSlotIndex] = {
+                id: `webview-${dynamicSlotIndex}`,
+                name: 'Notícias (Webview)',
+                url: dynamicUrl.trim(),
+                type: 'webview',
+                thumbnail: null,
+                duration: slotDef.duration || 15,
+                dynamic_config: { url: dynamicUrl.trim(), zoom, type: 'webview' }
+            };
+            setSlots(newSlots);
+        } else {
+            // URL vazia = limpar o slot
+            const newSlots = [...slots];
+            newSlots[dynamicSlotIndex] = null;
+            setSlots(newSlots);
+        }
+
+        setShowDynamicModal(false);
+        setDynamicSlotIndex(null);
     };
 
     const handleAssignToSlot = (item) => {
@@ -384,13 +445,27 @@ const Playlists = () => {
 
             if (deleteError) throw deleteError;
 
-            // 2. Inserir novos slots (apenas os preenchidos com UUIDs válidos)
+            // 2. Inserir novos slots (mídia + webview dinâmico)
             const isValidUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
             const slotsToInsert = slots
                 .map((slot, index) => {
                     if (!slot) return null;
-                    // Pular widgets dinâmicos (IDs não são UUIDs válidos)
+                    const slotType = SLOT_CYCLE[index % SLOT_CYCLE.length].type;
+
+                    // Slot dinâmico com webview
+                    if (slot.type === 'webview' && slot.dynamic_config) {
+                        return {
+                            playlist_id: selectedPlaylistId,
+                            slot_index: index,
+                            media_id: null,
+                            slot_type: slotType,
+                            duration: slot.duration || 15,
+                            dynamic_config: slot.dynamic_config
+                        };
+                    }
+
+                    // Slot normal com mídia (precisa de UUID válido)
                     if (!isValidUUID(slot.id)) {
                         console.warn(`[Playlists] Skipping slot ${index}: invalid UUID "${slot.id}"`);
                         return null;
@@ -399,7 +474,7 @@ const Playlists = () => {
                         playlist_id: selectedPlaylistId,
                         slot_index: index,
                         media_id: slot.id,
-                        slot_type: SLOT_CYCLE[index % SLOT_CYCLE.length].type,
+                        slot_type: slotType,
                         duration: slot.duration || 10
                     };
                 })
@@ -563,6 +638,103 @@ const Playlists = () => {
                     </div>
                 )}
             </div>
+
+            {/* Modal Configuração do Slot Dinâmico */}
+            {showDynamicModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDynamicModal(false)}>
+                    <div
+                        className="bg-white rounded-2xl w-[480px] max-h-[80vh] overflow-hidden shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-teal-500 to-emerald-500 px-6 py-4 text-white">
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <h3 className="font-bold text-lg flex items-center gap-2">
+                                        <Newspaper className="w-5 h-5" />
+                                        Slot Dinâmico
+                                    </h3>
+                                    <p className="text-sm opacity-80">Configurar widget de notícias</p>
+                                </div>
+                                <button onClick={() => setShowDynamicModal(false)} className="p-2 hover:bg-white/20 rounded-lg">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-6 space-y-5">
+                            {/* URL */}
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">
+                                    <Link2 className="w-4 h-4 inline mr-1" />
+                                    URL do Widget
+                                </label>
+                                <input
+                                    type="url"
+                                    value={dynamicUrl}
+                                    onChange={(e) => setDynamicUrl(e.target.value)}
+                                    placeholder="https://feed.mikle.com/widget/v2/..."
+                                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm focus:border-teal-400 focus:ring-2 focus:ring-teal-100 outline-none transition-all"
+                                    autoFocus
+                                />
+                                <p className="mt-1.5 text-xs text-slate-400">
+                                    Use um serviço como <a href="https://feed.mikle.com" target="_blank" rel="noopener noreferrer" className="text-teal-500 underline">FeedWind</a> para gerar um widget de notícias
+                                </p>
+                            </div>
+
+                            {/* Zoom */}
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">
+                                    🔍 Nível de Zoom — {dynamicZoom}x
+                                </label>
+                                <input
+                                    type="range"
+                                    min="1.0"
+                                    max="4.0"
+                                    step="0.5"
+                                    value={dynamicZoom}
+                                    onChange={(e) => setDynamicZoom(e.target.value)}
+                                    className="w-full accent-teal-500"
+                                />
+                                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                                    <span>1x (normal)</span>
+                                    <span>2x (recomendado)</span>
+                                    <span>4x (muito grande)</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between">
+                            <button
+                                onClick={() => {
+                                    setDynamicUrl('');
+                                    handleSaveDynamicConfig();
+                                }}
+                                className="px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                                Limpar Slot
+                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setShowDynamicModal(false)}
+                                    className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={handleSaveDynamicConfig}
+                                    disabled={!dynamicUrl.trim()}
+                                    className="px-5 py-2 text-sm font-bold text-white bg-teal-500 hover:bg-teal-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    Salvar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Modal Seletor */}
             {showSelector && selectedSlotIndex !== null && (
