@@ -26,27 +26,14 @@ const ERROR_LOG_DEBOUNCE = 60 * 60 * 1000; // 1 hora
  */
 function runEnvironmentSmokeTest() {
     const checks = [];
+    const { checkMpvAvailability, getFreeDiskSpace } = require('./platformUtils');
 
-    // Lógica unificada de busca (igual ao mpvPlayer.js)
-    const findMpvBinary = () => {
-        const bundledPaths = [
-            path.join(process.resourcesPath || '', 'mpv', 'mpv.exe'),
-            path.join(path.dirname(app.getPath('exe')), 'mpv', 'mpv.exe'),
-            path.join(process.cwd(), 'mpv', 'mpv.exe'),
-        ];
-        for (const p of bundledPaths) {
-            if (fs.existsSync(p)) return p;
-        }
-        return 'mpv'; // fallback
-    };
-
-    const mpvPath = findMpvBinary();
-    const mpvExists = mpvPath !== 'mpv' && fs.existsSync(mpvPath);
-
+    // 1. Verificar mpv disponível
+    const mpv = checkMpvAvailability();
     checks.push({
-        name: 'mpv.exe',
-        pass: mpvExists,
-        detail: mpvExists ? `Encontrado em ${mpvPath}` : `NÃO encontrado nos caminhos de produção/dev`
+        name: 'mpv',
+        pass: mpv.found,
+        detail: mpv.found ? `Encontrado em ${mpv.path}` : 'NÃO encontrado (bundled nem sistema)'
     });
 
     // 2. Verificar que o SQLite DB pode ser acessado
@@ -56,7 +43,6 @@ function runEnvironmentSmokeTest() {
         const dbExists = fs.existsSync(dbPath);
 
         if (dbExists) {
-            // Verificar se pode ler o arquivo
             const stats = fs.statSync(dbPath);
             const isReadable = stats.size > 0;
             checks.push({
@@ -65,7 +51,6 @@ function runEnvironmentSmokeTest() {
                 detail: isReadable ? `OK (${(stats.size / 1024).toFixed(1)}KB)` : 'Arquivo vazio/corrompido'
             });
         } else {
-            // DB não existe ainda = app novo, não é erro crítico
             checks.push({ name: 'SQLite DB', pass: true, detail: 'Não existe (será criado no primeiro boot)' });
         }
     } catch (err) {
@@ -74,22 +59,7 @@ function runEnvironmentSmokeTest() {
 
     // 3. Verificar espaço em disco mínimo (500MB)
     try {
-        const exePath = app.getPath('exe');
-        const driveLetter = exePath.charAt(0);
-        let freeBytes = null;
-
-        try {
-            // Windows: usar wmic para obter espaço livre
-            const output = execSync(
-                `wmic logicaldisk where "DeviceID='${driveLetter}:'" get FreeSpace /value`,
-                { encoding: 'utf8', timeout: 5000 }
-            );
-            const match = output.match(/FreeSpace=(\d+)/);
-            if (match) freeBytes = parseInt(match[1], 10);
-        } catch {
-            // Fallback: tentar via fsPromises (não bloqueia se wmic falhar)
-            console.warn('[SmokeTest] wmic indisponível, pulando check de disco');
-        }
+        const freeBytes = getFreeDiskSpace();
 
         if (freeBytes !== null) {
             const freeMB = freeBytes / (1024 * 1024);
@@ -97,7 +67,7 @@ function runEnvironmentSmokeTest() {
             checks.push({
                 name: 'Espaço em disco',
                 pass: hasSpace,
-                detail: `${Math.round(freeMB)}MB livres em ${driveLetter}: (mínimo: 500MB)`
+                detail: `${Math.round(freeMB)}MB livres (mínimo: 500MB)`
             });
         } else {
             checks.push({ name: 'Espaço em disco', pass: true, detail: 'Check não disponível (pulado)' });
@@ -115,6 +85,7 @@ function runEnvironmentSmokeTest() {
 
     return { pass: allPass, checks };
 }
+
 
 /**
  * Inicializa o auto-updater

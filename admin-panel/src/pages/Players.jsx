@@ -8,6 +8,7 @@ import { Monitor, Cpu, Thermometer, HardDrive, Zap, Power, Play, Plus, Search, F
 import GroupManagerModal from '../components/GroupManagerModal';
 import CheckoutModal from '../components/CheckoutModal';
 import ScreenAlertsPanel from '../components/ScreenAlertsPanel';
+import PasswordConfirmModal from '../components/PasswordConfirmModal';
 
 // Componente isolado para o Mini-Player
 const MiniPlayerPreview = ({ terminal, activePlaylist, onClose }) => {
@@ -558,8 +559,11 @@ const Players = () => {
                         ));
                         console.log('[REALTIME] ✅ Terminal atualizado:', payload.new.name);
                     } else if (payload.eventType === 'INSERT' && payload.new) {
-                        // Novo terminal - adicionar à lista
-                        setTerminals(prev => [...prev, payload.new]);
+                        // Novo terminal - adicionar à lista (com dedup guard)
+                        setTerminals(prev => {
+                            if (prev.some(t => t.id === payload.new.id)) return prev;
+                            return [...prev, payload.new];
+                        });
                         console.log('[REALTIME] ➕ Novo terminal:', payload.new.name);
                     } else if (payload.eventType === 'DELETE' && payload.old) {
                         // Terminal deletado - remover da lista
@@ -832,10 +836,8 @@ const Players = () => {
                 });
             }
 
-            // Optimistic UI: Adicionar terminal à lista local imediatamente
-            if (newTerminal) {
-                setTerminals(prev => [...prev, newTerminal]);
-            }
+            // Realtime subscription handles the INSERT event automatically
+            // No optimistic UI needed here to avoid duplicates
 
             setNewName('');
             setNewGroup('');
@@ -848,13 +850,22 @@ const Players = () => {
         }
     };
 
-    const handleDeleteTerminal = async (id, name) => {
-        if (!window.confirm(`Tem certeza que deseja excluir o terminal "${name}"? Esta ação não pode ser desfeita.`)) return;
+    // Estado do modal de confirmação de exclusão
+    const [deleteTarget, setDeleteTarget] = useState(null);
+
+    const handleDeleteTerminal = (id, name) => {
+        setDeleteTarget({ id, name });
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
         try {
-            await deleteDocument('terminals', id);
+            await deleteDocument('terminals', deleteTarget.id);
         } catch (e) {
             console.error(e);
             alert("Erro ao excluir terminal.");
+        } finally {
+            setDeleteTarget(null);
         }
     };
 
@@ -1129,6 +1140,14 @@ const Players = () => {
                 isOpen={isCheckoutOpen}
                 onClose={() => setIsCheckoutOpen(false)}
                 userData={userData}
+            />
+
+            <PasswordConfirmModal
+                isOpen={!!deleteTarget}
+                onClose={() => setDeleteTarget(null)}
+                onConfirm={confirmDelete}
+                title="Excluir Terminal"
+                message={`Você está prestes a excluir o terminal "${deleteTarget?.name}". O player voltará para a tela de pareamento. Esta ação não pode ser desfeita. Digite sua senha para confirmar.`}
             />
 
             <GroupManagerModal

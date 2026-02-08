@@ -28,25 +28,8 @@ class MpvPlayer {
      * Encontrar o binário mpv (bundled ou instalado no sistema)
      */
     _findMpvBinary() {
-        // 1. Bundled com o app (produção)
-        const bundledPaths = [
-            // Dentro do diretório resources do app empacotado
-            path.join(process.resourcesPath || '', 'mpv', 'mpv.exe'),
-            // Ao lado do executável principal
-            path.join(path.dirname(app.getPath('exe')), 'mpv', 'mpv.exe'),
-            // Na pasta do projeto (desenvolvimento)
-            path.join(__dirname, '..', 'mpv', 'mpv.exe'),
-        ];
-
-        for (const p of bundledPaths) {
-            if (fs.existsSync(p)) {
-                return p;
-            }
-        }
-
-        // 2. Instalado no PATH do sistema
-        const systemPath = 'mpv';
-        return systemPath;
+        const { findMpvBinary } = require('./platformUtils');
+        return findMpvBinary();
     }
 
     /**

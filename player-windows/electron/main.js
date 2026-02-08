@@ -410,13 +410,8 @@ app.whenReady().then(async () => {
     if (!app.isPackaged) {
         console.log('[PRIORITY] Modo dev — prioridade não alterada');
     } else {
-        try {
-            const pid = process.pid;
-            execSync(`wmic process where processid=${pid} CALL setpriority 128`, { stdio: 'ignore' });
-            console.log('[PRIORITY] ✅ Processo elevado para Alta Prioridade (PID:', pid, ')');
-        } catch (e) {
-            console.warn('[PRIORITY] ⚠️ Não foi possível elevar prioridade:', e.message);
-        }
+        const { setHighPriority } = require('./platformUtils');
+        setHighPriority();
     }
 
     // ============================================

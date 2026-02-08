@@ -28,10 +28,13 @@ const CURRENT_VERSION_CODE = 17.0;
 // ========================================
 // TELEMETRIA REMOTA
 // ========================================
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const remoteLog = async (terminalId, level, message, details = {}) => {
   try {
     console.log(`[${level}] ${message}`, details);
-    if (terminalId) {
+    // Só envia para o banco se tiver um terminalId UUID válido
+    if (terminalId && UUID_RE.test(terminalId)) {
       await logTerminalEvent(terminalId, level.toLowerCase(), message, details);
     }
   } catch (e) {
@@ -72,7 +75,22 @@ const flushLogBuffer = async () => {
 
     console.log(`[PoP] Flushing ${buffer.length} logs...`);
 
-    const { error } = await logPlaybackBatch(buffer);
+    // Filtrar logs com mediaId inválido (ex: 'fallback')
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validBuffer = buffer.filter(entry => {
+      if (entry.mediaId && !UUID_REGEX.test(entry.mediaId)) {
+        console.warn(`[PoP] Skipping invalid mediaId: ${entry.mediaId}`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validBuffer.length === 0) {
+      localStorage.removeItem(LOG_BUFFER_KEY);
+      return;
+    }
+
+    const { error } = await logPlaybackBatch(validBuffer);
 
     if (!error) {
       localStorage.removeItem(LOG_BUFFER_KEY);
@@ -307,8 +325,14 @@ function App() {
         setDiag(prev => ({ ...prev, t: `OK: ${data.name || 'Terminal'}` }));
         setLoading(false);
       } else if (error) {
-        setDiag(prev => ({ ...prev, t: '404 - Deleted?' }));
-        remoteLog(terminalId, "WARN", "Terminal Doc Missing");
+        // Terminal foi excluído do banco — voltar para tela de pareamento
+        console.warn('[Recovery] Terminal deleted, resetting to pairing screen');
+        localStorage.removeItem('terminal_id');
+        localStorage.removeItem(LOG_BUFFER_KEY); // Limpar buffer de logs órfãos
+        sessionStorage.removeItem('pairing_code');
+        setTerminalId(null);
+        setTerminalData(null);
+        setLoading(false);
       }
     };
     fetchTerminal();
@@ -318,6 +342,17 @@ function App() {
     const DEBOUNCE_MS = 2000; // Ignorar updates dentro de 2 segundos
 
     const channel = subscribeToTerminal(terminalId, (payload) => {
+      // Terminal foi excluído em tempo real — voltar para pareamento
+      if (payload.eventType === 'DELETE') {
+        console.warn('[Recovery] Terminal deleted in realtime, resetting to pairing');
+        localStorage.removeItem('terminal_id');
+        localStorage.removeItem(LOG_BUFFER_KEY); // Limpar buffer de logs órfãos
+        sessionStorage.removeItem('pairing_code');
+        setTerminalId(null);
+        setTerminalData(null);
+        return;
+      }
+
       if (payload.new) {
         const now = Date.now();
         if (now - lastRealtimeUpdate < DEBOUNCE_MS) {
@@ -742,6 +777,8 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
   // Registrar log de exibição quando a mídia muda
   React.useEffect(() => {
     if (!currentItem || !terminalId) return;
+    // Não logar itens fallback (id não é UUID válido)
+    if (currentItem.id === 'fallback' || currentItem.slotType === 'fallback') return;
 
     const logData = {
       terminalId,
