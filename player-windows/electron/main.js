@@ -124,7 +124,7 @@ function createWindow() {
         kiosk: !isDebugMode,              // Modo kiosk desativado em debug
         autoHideMenuBar: true,
         frame: isDebugMode,               // Frame visível em debug
-        alwaysOnTop: !isDebugMode,        // Sempre no topo desativado em debug
+        alwaysOnTop: !isDebugMode ? true : false,  // Sempre no topo desativado em debug
         skipTaskbar: !isDebugMode,        // Taskbar visível em debug
         backgroundColor: '#0a0a0a',
         webPreferences: {
@@ -277,19 +277,28 @@ function setupIpcHandlers() {
     // Helper para re-focar a janela agressivamente após mpv fechar
     const refocusWindow = () => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
-        // Sequência agressiva para retomar foco sem flash da área de trabalho
-        mainWindow.setAlwaysOnTop(true, 'screen-saver'); // Nível mais alto
+        console.log('[REFOCUS] Iniciando sequência de re-foco tripla');
+
+        // Pulso imediato
+        mainWindow.setAlwaysOnTop(true, 'screen-saver');
         mainWindow.moveTop();
         mainWindow.focus();
-        // Re-aplicar fullscreen caso tenha saído
-        if (!mainWindow.isFullScreen()) {
-            mainWindow.setFullScreen(true);
-        }
-        // Depois de estabilizar, voltar ao nível normal de alwaysOnTop
+        if (!mainWindow.isFullScreen()) mainWindow.setFullScreen(true);
+
+        // Pulso 200ms — garante que cobriu qualquer janela que apareceu
         setTimeout(() => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.setAlwaysOnTop(true, 'floating');
-            }
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+            mainWindow.setAlwaysOnTop(true, 'screen-saver');
+            mainWindow.moveTop();
+            mainWindow.focus();
+        }, 200);
+
+        // Pulso 500ms — confirmação final
+        setTimeout(() => {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+            mainWindow.setAlwaysOnTop(true, 'screen-saver');
+            mainWindow.moveTop();
+            mainWindow.focus();
         }, 500);
     };
 
@@ -578,9 +587,9 @@ app.whenReady().then(async () => {
             if (!mainWindow.isFullScreen() && !mainWindow.isKiosk) {
                 mainWindow.setFullScreen(true);
             }
-        }, 60 * 1000); // A cada 1 minuto
+        }, 10 * 1000); // A cada 10 segundos
 
-        console.log('[WATCHDOG] ✅ Monitoramento de foco ativo (intervalo: 60s)');
+        console.log('[WATCHDOG] ✅ Monitoramento de foco ativo (intervalo: 10s)');
     }
 });
 
