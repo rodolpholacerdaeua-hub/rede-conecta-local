@@ -275,6 +275,25 @@ function setupIpcHandlers() {
     // MPV PLAYER HANDLERS (Native Video Playback)
     // ============================================
 
+    // Helper para re-focar a janela agressivamente após mpv fechar
+    const refocusWindow = () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        // Sequência agressiva para retomar foco sem flash da área de trabalho
+        mainWindow.setAlwaysOnTop(true, 'screen-saver'); // Nível mais alto
+        mainWindow.moveTop();
+        mainWindow.focus();
+        // Re-aplicar fullscreen caso tenha saído
+        if (!mainWindow.isFullScreen()) {
+            mainWindow.setFullScreen(true);
+        }
+        // Depois de estabilizar, voltar ao nível normal de alwaysOnTop
+        setTimeout(() => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.setAlwaysOnTop(true, 'floating');
+            }
+        }, 500);
+    };
+
     ipcMain.handle('mpv-play-video', async (_, filePath) => {
         if (!mpvPlayer) return { success: false, error: 'mpv not initialized' };
 
@@ -300,7 +319,7 @@ function setupIpcHandlers() {
                     isMpvPlaying = false;
                     if (mainWindow && !mainWindow.isDestroyed()) {
                         mainWindow.webContents.send('mpv-video-ended', { success: true });
-                        mainWindow.focus();
+                        refocusWindow();
                     }
                 }
             }).catch((err) => {
@@ -309,7 +328,7 @@ function setupIpcHandlers() {
                     isMpvPlaying = false;
                     if (mainWindow && !mainWindow.isDestroyed()) {
                         mainWindow.webContents.send('mpv-video-ended', { success: false, error: err.message });
-                        mainWindow.focus();
+                        refocusWindow();
                     }
                 }
             });
