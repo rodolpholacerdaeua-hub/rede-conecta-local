@@ -920,7 +920,7 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
         clearTimeout(timer);
       };
     }
-  }, [currentIndex, currentItem, items, isCurrentVideo, isCurrentWebview, playCount, skipToNext]);
+  }, [currentIndex, currentItem, items, isCurrentVideo, isCurrentRss, playCount, skipToNext]);
 
   if (!currentItem) {
     return <div style={{ color: 'white' }}>Carregando mídia...</div>;
