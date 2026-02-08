@@ -668,18 +668,18 @@ const Playlists = () => {
                             <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">
                                     <Link2 className="w-4 h-4 inline mr-1" />
-                                    URL do Widget
+                                    URL ou Código Embed
                                 </label>
-                                <input
-                                    type="url"
+                                <textarea
                                     value={dynamicUrl}
                                     onChange={(e) => setDynamicUrl(e.target.value)}
-                                    placeholder="https://feed.mikle.com/widget/v2/..."
-                                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm focus:border-teal-400 focus:ring-2 focus:ring-teal-100 outline-none transition-all"
+                                    placeholder={"Cole aqui a URL ou código embed do widget:\n\nEx URL: https://exemplo.com/noticias\nEx Embed: <!-- start feedwind code --> <script ...></script>"}
+                                    rows={4}
+                                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm focus:border-teal-400 focus:ring-2 focus:ring-teal-100 outline-none transition-all font-mono resize-none"
                                     autoFocus
                                 />
                                 <p className="mt-1.5 text-xs text-slate-400">
-                                    Use um serviço como <a href="https://feed.mikle.com" target="_blank" rel="noopener noreferrer" className="text-teal-500 underline">FeedWind</a> para gerar um widget de notícias
+                                    Aceita URL direta ou código embed (<a href="https://feed.mikle.com" target="_blank" rel="noopener noreferrer" className="text-teal-500 underline">FeedWind</a>, RSS, etc.)
                                 </p>
                             </div>
 

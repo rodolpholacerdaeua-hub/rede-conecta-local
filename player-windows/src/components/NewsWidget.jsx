@@ -77,11 +77,54 @@ const CLEANUP_CSS = `
   }
 `;
 
+/**
+ * Resolver a URL do conteúdo:
+ * - Se for URL normal (http/https), usar direto
+ * - Se for código embed (começa com < ), envolver em HTML e usar data: URL
+ */
+const resolveContentUrl = (content) => {
+    if (!content) return '';
+    const trimmed = content.trim();
+
+    // Detectar código embed (HTML/script)
+    if (trimmed.startsWith('<')) {
+        const htmlPage = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #0a0a0a; 
+            width: 100vw; 
+            height: 100vh; 
+            overflow: hidden;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+        }
+        body > * { width: 100% !important; max-width: 100% !important; }
+    </style>
+</head>
+<body>
+    ${trimmed}
+</body>
+</html>`;
+        return 'data:text/html;charset=utf-8,' + encodeURIComponent(htmlPage);
+    }
+
+    // URL normal
+    return trimmed;
+};
+
 const NewsWidget = ({ url, zoomLevel = 2.0, onError }) => {
     const webviewRef = useRef(null);
     const containerRef = useRef(null);
     const [loaded, setLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
+    const isEmbedCode = url?.trim().startsWith('<');
+    const resolvedUrl = resolveContentUrl(url);
 
     // Callback para quando a webview termina de carregar
     const handleDidStopLoading = useCallback(() => {
@@ -89,27 +132,30 @@ const NewsWidget = ({ url, zoomLevel = 2.0, onError }) => {
         if (!wv) return;
 
         try {
-            // 1. Injetar CSS de limpeza
-            wv.insertCSS(CLEANUP_CSS);
+            // Embed codes (data: URL) gerenciam seu próprio estilo
+            if (!isEmbedCode) {
+                // 1. Injetar CSS de limpeza
+                wv.insertCSS(CLEANUP_CSS);
 
-            // 2. Aplicar zoom via CSS transform no conteúdo
-            wv.insertCSS(`
-        html {
-          transform: scale(${zoomLevel});
-          transform-origin: top left;
-          width: ${100 / zoomLevel}% !important;
-          height: ${100 / zoomLevel}% !important;
-        }
-      `);
+                // 2. Aplicar zoom via CSS transform no conteúdo
+                wv.insertCSS(`
+            html {
+              transform: scale(${zoomLevel});
+              transform-origin: top left;
+              width: ${100 / zoomLevel}% !important;
+              height: ${100 / zoomLevel}% !important;
+            }
+          `);
+            }
 
-            console.log(`[NewsWidget] ✅ Loaded + CSS injected (zoom: ${zoomLevel}x)`);
+            console.log(`[NewsWidget] ✅ Loaded${isEmbedCode ? ' (embed code)' : ` + CSS injected (zoom: ${zoomLevel}x)`}`);
         } catch (err) {
             console.error('[NewsWidget] CSS injection error:', err);
         }
 
         // 3. Revelar com fade-in
         setLoaded(true);
-    }, [zoomLevel]);
+    }, [zoomLevel, isEmbedCode]);
 
     // Callback de erro
     const handleDidFailLoad = useCallback((e) => {
@@ -186,7 +232,7 @@ const NewsWidget = ({ url, zoomLevel = 2.0, onError }) => {
         >
             <webview
                 ref={webviewRef}
-                src={url}
+                src={resolvedUrl}
                 partition="persist:news"
                 useragent={CHROME_USER_AGENT}
                 allowpopups="false"
