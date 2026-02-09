@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './index.css';
-import { Monitor, Loader2, Database, Bug } from 'lucide-react';
+import { Monitor, Database, Bug } from 'lucide-react';
 import UpdateNotification from './components/UpdateNotification';
-import NewsSlot from './components/NewsSlot';
+import SplashScreen from './components/SplashScreen';
+import PairingCodeDisplay from './components/PairingCodeDisplay';
+import WebMediaPlayer from './components/WebMediaPlayer';
 
 // Supabase Client
 import {
@@ -10,178 +12,18 @@ import {
   signInAnonymously,
   onAuthStateChange,
   getTerminalByHardwareId,
-  upsertTerminal,
   updateTerminalHeartbeat,
   subscribeToTerminal,
   getPlaylistWithSlots,
   subscribeToPlaylist,
-  logPlayback,
-  logPlaybackBatch,
-  logTerminalEvent,
-  registerPairingCode,
-  checkPairingStatus
 } from './supabase';
+
+// Telemetria
+import { remoteLog, flushLogBuffer, LOG_BUFFER_KEY, BATCH_INTERVAL_MS } from './utils/telemetry';
 
 // Versão dinâmica - busca do package.json via Electron API
 const CURRENT_VERSION = `V${__APP_VERSION__}`;
-const CURRENT_VERSION_CODE = 17.0;
-
-// ========================================
-// TELEMETRIA REMOTA
-// ========================================
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const remoteLog = async (terminalId, level, message, details = {}) => {
-  try {
-    console.log(`[${level}] ${message}`, details);
-    // Só envia para o banco se tiver um terminalId UUID válido
-    if (terminalId && UUID_RE.test(terminalId)) {
-      await logTerminalEvent(terminalId, level.toLowerCase(), message, details);
-    }
-  } catch (e) {
-    console.error("Fail to remote log", e);
-  }
-};
-
-// ========================================
-// BUFFER DE LOGS (BATCHING A CADA 5 MINUTOS)
-// ========================================
-const LOG_BUFFER_KEY = 'popLogBuffer';
-const BATCH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
-const MAX_BUFFER_SIZE = 1000;
-
-// Adicionar log ao buffer local
-const addToLogBuffer = (logData) => {
-  try {
-    const buffer = JSON.parse(localStorage.getItem(LOG_BUFFER_KEY) || '[]');
-    buffer.push(logData);
-
-    // Limitar tamanho do buffer
-    if (buffer.length > MAX_BUFFER_SIZE) {
-      buffer.splice(0, buffer.length - MAX_BUFFER_SIZE);
-    }
-
-    localStorage.setItem(LOG_BUFFER_KEY, JSON.stringify(buffer));
-    console.log(`[PoP] Buffered (${buffer.length} pending)`);
-  } catch (e) {
-    console.error('[PoP] Failed to buffer log:', e);
-  }
-};
-
-// Flush buffer de logs para o servidor
-const flushLogBuffer = async () => {
-  try {
-    const buffer = JSON.parse(localStorage.getItem(LOG_BUFFER_KEY) || '[]');
-    if (buffer.length === 0) return;
-
-    console.log(`[PoP] Flushing ${buffer.length} logs...`);
-
-    // Filtrar logs com mediaId inválido (ex: 'fallback')
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const validBuffer = buffer.filter(entry => {
-      if (entry.mediaId && !UUID_REGEX.test(entry.mediaId)) {
-        console.warn(`[PoP] Skipping invalid mediaId: ${entry.mediaId}`);
-        return false;
-      }
-      return true;
-    });
-
-    if (validBuffer.length === 0) {
-      localStorage.removeItem(LOG_BUFFER_KEY);
-      return;
-    }
-
-    const { error } = await logPlaybackBatch(validBuffer);
-
-    if (!error) {
-      localStorage.removeItem(LOG_BUFFER_KEY);
-      console.log(`[PoP] Successfully flushed ${buffer.length} logs`);
-    } else {
-      console.warn('[PoP] Flush failed:', error.message);
-    }
-  } catch (e) {
-    console.error('[PoP] Error flushing logs:', e);
-  }
-};
-
-// Native Remote Log Receiver
-window.nativeRemoteLog = (terminalId, level, message, details) => {
-  remoteLog(terminalId, level, "[NATIVE] " + message, details);
-};
-
-// ========================================
-// COMPONENTES
-// ========================================
-const SplashScreen = () => (
-  <div className="splash-overlay" style={{ background: '#2563eb' }}>
-    <div className="logo-container">
-      <div className="logo-box" style={{ background: 'white' }}>
-        <Monitor size={60} color="#2563eb" />
-      </div>
-      <h1 className="title">REDE <span style={{ color: '#93c5fd' }}>CONECTA</span></h1>
-      <p className="subtitle" style={{ marginTop: '1rem', color: 'white', fontSize: '1.5rem' }}>{CURRENT_VERSION}</p>
-    </div>
-    <div style={{ position: 'absolute', bottom: '80px' }}>
-      <Loader2 className="animate-spin" color="white" size={40} />
-    </div>
-  </div>
-);
-
-const PairingCodeDisplay = ({ authReady, hardwareId, terminalId }) => {
-  const [code, setCode] = useState(null);
-
-  useEffect(() => {
-    if (!authReady) return;
-    remoteLog(terminalId, "INFO", "PairingCodeDisplay Mounted");
-
-    let cur = sessionStorage.getItem('pairing_code');
-    if (!cur) {
-      cur = Math.random().toString(36).substring(2, 8).toUpperCase();
-      sessionStorage.setItem('pairing_code', cur);
-    }
-    setCode(cur);
-
-    // Registrar código de pareamento na tabela pairing_codes
-    const doRegister = async () => {
-      try {
-        const { data, error } = await registerPairingCode(cur, hardwareId || 'unknown');
-        if (error) throw error;
-        remoteLog(terminalId, "INFO", "Pairing Code Registered", { code: cur });
-      } catch (e) {
-        remoteLog(terminalId, "ERROR", "Fail to register pairing code", { err: e.message });
-      }
-    };
-    doRegister();
-
-    // Polling para verificar pareamento via pairing_codes table
-    const checkPairing = async () => {
-      const { paired, terminalId: newTerminalId } = await checkPairingStatus(cur);
-      if (paired && newTerminalId) {
-        remoteLog(terminalId, "INFO", "Terminal Linked Successfully", { newId: newTerminalId });
-        localStorage.setItem('terminal_id', newTerminalId);
-        sessionStorage.removeItem('pairing_code');
-        window.location.reload();
-      }
-    };
-
-    const interval = setInterval(checkPairing, 3000);
-    return () => clearInterval(interval);
-  }, [authReady, hardwareId, terminalId]);
-
-  if (!authReady) {
-    return <div className="subtitle animate-pulse">Estabelecendo Conexão Segura...</div>;
-  }
-
-  return (
-    <div className="panel">
-      <span className="subtitle">CÓDIGO DE ATIVAÇÃO</span>
-      <div className="pairing-box">
-        <code className="pairing-code">{code || '---'}</code>
-      </div>
-      <p style={{ marginTop: '2rem', color: '#475569', fontSize: '0.8rem' }}>Acesse o Painel Admin para parear este terminal</p>
-    </div>
-  );
-};
+const CURRENT_VERSION_CODE = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 
 function App() {
   const [loading, setLoading] = useState(true);
@@ -195,24 +37,21 @@ function App() {
   const [authReady, setAuthReady] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [playlist, setPlaylist] = useState(null);
-  const [cacheMap, setCacheMap] = useState({}); // mediaId -> localPath
+  const [cacheMap, setCacheMap] = useState({});
   const [cacheProgress, setCacheProgress] = useState(null);
-  // Sistema vertical-only: orientação fixa portrait (não precisa de state)
   const lastSentSettingsRef = useRef(null);
 
-  // Telemetria de Inicialização + Fast-Start (Blindagem de Disponibilidade)
+  // 1. Telemetria de Inicialização + Fast-Start
   useEffect(() => {
     remoteLog(terminalId, "INFO", "App.jsx Component Mounted", { version: CURRENT_VERSION });
 
-    // Log de sucesso pós-update (comparação de versão)
     const lastVersion = localStorage.getItem('last_app_version');
     if (lastVersion && lastVersion !== CURRENT_VERSION) {
       remoteLog(terminalId, "INFO", `Sistema Atualizado com Sucesso: ${lastVersion} -> ${CURRENT_VERSION}`);
     }
     localStorage.setItem('last_app_version', CURRENT_VERSION);
 
-    // Verificar se houve boot atrasado — splash rápido de 1s
-    let splashDuration = 10000; // padrão 10s
+    let splashDuration = 10000;
     let timerId = null;
 
     (async () => {
@@ -220,37 +59,27 @@ function App() {
         if (window.electronAPI?.getBootInfo) {
           const bootInfo = await window.electronAPI.getBootInfo();
           if (bootInfo?.shouldFastStart) {
-            splashDuration = 1000; // 1s — vai direto pro conteúdo em cache
+            splashDuration = 1000;
             console.log('[FAST-START] ⚡ Boot atrasado detectado — splash reduzido para 1s');
           }
         }
       } catch (e) { /* ignore */ }
 
-      // Splash timer (criado APÓS resolver a duração)
-      timerId = setTimeout(() => {
-        setShowSplash(false);
-      }, splashDuration);
+      timerId = setTimeout(() => setShowSplash(false), splashDuration);
     })();
 
-    // Cleanup acessível pelo React
-    return () => {
-      if (timerId) clearTimeout(timerId);
-    };
+    return () => { if (timerId) clearTimeout(timerId); };
   }, [terminalId]);
 
-  // 1. Electron/Native Communication & Hardware ID
+  // 2. Hardware ID
   useEffect(() => {
     (async () => {
       try {
         let id = 'web_device';
-
-        // Electron environment
         if (window.electronAPI?.isElectron) {
           id = await window.electronAPI.getHardwareId();
           console.log('[Electron] Hardware ID:', id);
-        }
-        // Android environment
-        else if (window.Android?.getHardwareId) {
+        } else if (window.Android?.getHardwareId) {
           id = window.Android.getHardwareId();
         }
 
@@ -272,7 +101,7 @@ function App() {
     })();
   }, [terminalId]);
 
-  // 2. Supabase Auth & Network
+  // 3. Supabase Auth & Network
   useEffect(() => {
     const { data: { subscription } } = onAuthStateChange((event, session) => {
       if (session?.user) {
@@ -299,20 +128,18 @@ function App() {
     };
   }, [terminalId]);
 
-  // 3. Terminal Sync (Supabase Realtime)
+  // 4. Terminal Sync (Supabase Realtime)
   useEffect(() => {
     if (!terminalId || !authReady) return;
 
     remoteLog(terminalId, "INFO", "Starting Supabase Listeners");
 
-    // Listener para logs do Main Process (IPC)
     if (window.electronAPI?.onRemoteLog) {
       window.electronAPI.onRemoteLog((data) => {
         remoteLog(terminalId, data.level, data.message, data.metadata);
       });
     }
 
-    // Fetch inicial
     const fetchTerminal = async () => {
       const { data, error } = await supabase
         .from('terminals')
@@ -322,14 +149,12 @@ function App() {
 
       if (data) {
         setTerminalData(data);
-        // Sistema vertical-only: não precisa ler orientação do banco
         setDiag(prev => ({ ...prev, t: `OK: ${data.name || 'Terminal'}` }));
         setLoading(false);
       } else if (error) {
-        // Terminal foi excluído do banco — voltar para tela de pareamento
         console.warn('[Recovery] Terminal deleted, resetting to pairing screen');
         localStorage.removeItem('terminal_id');
-        localStorage.removeItem(LOG_BUFFER_KEY); // Limpar buffer de logs órfãos
+        localStorage.removeItem(LOG_BUFFER_KEY);
         sessionStorage.removeItem('pairing_code');
         setTerminalId(null);
         setTerminalData(null);
@@ -338,16 +163,14 @@ function App() {
     };
     fetchTerminal();
 
-    // Realtime subscription com debounce para evitar loop infinito
     let lastRealtimeUpdate = 0;
-    const DEBOUNCE_MS = 2000; // Ignorar updates dentro de 2 segundos
+    const DEBOUNCE_MS = 2000;
 
     const channel = subscribeToTerminal(terminalId, (payload) => {
-      // Terminal foi excluído em tempo real — voltar para pareamento
       if (payload.eventType === 'DELETE') {
         console.warn('[Recovery] Terminal deleted in realtime, resetting to pairing');
         localStorage.removeItem('terminal_id');
-        localStorage.removeItem(LOG_BUFFER_KEY); // Limpar buffer de logs órfãos
+        localStorage.removeItem(LOG_BUFFER_KEY);
         sessionStorage.removeItem('pairing_code');
         setTerminalId(null);
         setTerminalData(null);
@@ -358,23 +181,19 @@ function App() {
         const now = Date.now();
         if (now - lastRealtimeUpdate < DEBOUNCE_MS) {
           console.log('[Realtime] Debounced - ignoring rapid update');
-          return; // Ignorar updates muito rápidos
+          return;
         }
         lastRealtimeUpdate = now;
-
         console.log('[Realtime] Terminal update applied');
         setTerminalData(payload.new);
-        // Sistema vertical-only: não precisa ler orientação
         setDiag(d => ({ ...d, t: `OK: ${payload.new.name || 'Terminal'}` }));
       }
     });
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [terminalId, authReady]);
 
-  // 4. Playlist Sync
+  // 5. Playlist Sync
   useEffect(() => {
     if (!terminalData || !authReady) return;
 
@@ -404,23 +223,16 @@ function App() {
     };
     fetchPlaylist();
 
-    // Realtime subscription - playlist_slots (mudanças diretas nos slots)
     const slotsChannel = subscribeToPlaylist(playlistId, () => {
       console.log('[REALTIME] playlist_slots changed, refetching...');
       fetchPlaylist();
     });
 
-    // Realtime subscription - playlists (backup: quando Playlists.jsx atualiza updated_at)
     const playlistChannel = supabase
       .channel(`playlist-parent:${playlistId}`)
       .on(
         'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'playlists',
-          filter: `id=eq.${playlistId}`
-        },
+        { event: 'UPDATE', schema: 'public', table: 'playlists', filter: `id=eq.${playlistId}` },
         (payload) => {
           console.log('[REALTIME] playlist parent updated, refetching...', payload);
           fetchPlaylist();
@@ -434,43 +246,26 @@ function App() {
     };
   }, [terminalData?.assigned_playlist_id, authReady, terminalId]);
 
-  // 5. Compile Effective Items
+  // 6. Compile Effective Items
   useEffect(() => {
     if (!terminalData) return;
-    // Sistema vertical-only: orientação fixa portrait
-    const orientation = 'portrait';
     let items = [];
 
-    // Processar slots da playlist
     if (playlist?.playlist_slots) {
       items = playlist.playlist_slots
         .filter(slot => slot.media || (slot.slot_type === 'dynamic' && slot.dynamic_config?.url))
         .sort((a, b) => a.slot_index - b.slot_index)
         .map(slot => {
-          // SLOT DINÂMICO: Feed RSS nativo
           if (slot.slot_type === 'dynamic' && slot.dynamic_config?.url) {
             return {
-              id: `dynamic-${slot.slot_index}`,
-              name: 'Notícias',
-              url: slot.dynamic_config.url,
-              type: 'rss',
-              duration: slot.duration || 15,
-              slotType: 'dynamic',
-              orientation: 'portrait',
-              refreshMinutes: slot.dynamic_config.refreshMinutes || 10,
-              startDate: null,
-              endDate: null
+              id: `dynamic-${slot.slot_index}`, name: 'Notícias', url: slot.dynamic_config.url,
+              type: 'rss', duration: slot.duration || 15, slotType: 'dynamic', orientation: 'portrait',
+              refreshMinutes: slot.dynamic_config.refreshMinutes || 10, startDate: null, endDate: null
             };
           }
-          // SLOT NORMAL: Mídia
           return {
-            id: slot.media.id,
-            name: slot.media.name,
-            url: slot.media.url,
-            type: slot.media.type,
-            duration: slot.duration || slot.media.duration || 10,
-            slotType: slot.slot_type,
-            orientation: 'portrait',
+            id: slot.media.id, name: slot.media.name, url: slot.media.url, type: slot.media.type,
+            duration: slot.duration || slot.media.duration || 10, slotType: slot.slot_type, orientation: 'portrait',
             startDate: slot.media.start_date || slot.start_date || null,
             endDate: slot.media.end_date || slot.end_date || null
           };
@@ -478,68 +273,32 @@ function App() {
       console.log("[PLAYLIST] Loaded", items.length, "items from slots");
     }
 
-    // ============================================
-    // SISTEMA DE VALIDAÇÃO (4 FILTROS)  
-    // ============================================
+    // Validação (4 filtros)
     const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.aac', '.ogg', '.m4a', '.flac'];
-
     const validateMedia = (item) => {
       const now = new Date();
-
-      // 1. Validade Temporal (Início)
-      if (item.startDate) {
-        if (now < new Date(item.startDate)) {
-          console.warn(`[FILTER] "${item.name}" não iniciou (${item.startDate})`);
-          return false;
-        }
-      }
-      // 2. Validade Temporal (Fim)
-      if (item.endDate) {
-        if (now > new Date(item.endDate)) {
-          console.warn(`[FILTER] "${item.name}" expirou (${item.endDate})`);
-          return false;
-        }
-      }
-      // 3. RSS items: apenas verificar se tem URL
-      if (item.type === 'rss') {
-        return !!item.url;
-      }
-      if (!item.url || item.url.length < 10 || (!item.url.startsWith('http://') && !item.url.startsWith('https://'))) {
-        console.warn(`[FILTER] "${item.name}" URL inválida`);
-        return false;
-      }
-      // 4. Bloqueio Áudio
-      if (AUDIO_EXTENSIONS.some(ext => item.url.toLowerCase().includes(ext))) {
-        console.warn(`[FILTER] Bloqueando áudio: "${item.name}"`);
-        return false;
-      }
-      // (Filtro de orientação removido — sistema vertical-only)
+      if (item.startDate && now < new Date(item.startDate)) return false;
+      if (item.endDate && now > new Date(item.endDate)) return false;
+      if (item.type === 'rss') return !!item.url;
+      if (!item.url || item.url.length < 10 || (!item.url.startsWith('http://') && !item.url.startsWith('https://'))) return false;
+      if (AUDIO_EXTENSIONS.some(ext => item.url.toLowerCase().includes(ext))) return false;
       return true;
     };
 
     const validatedItems = items.filter(validateMedia);
     if (items.length - validatedItems.length > 0) {
-      // Log detalhado para diagnóstico
-      console.log(`[FILTER] ${items.length - validatedItems.length} items blocked`);
-      items.forEach(item => {
-        console.log(`[FILTER] Item "${item.name}" - url: ${item.url?.substring(0, 50)}...`);
-      });
       remoteLog(terminalId, "INFO", "Content Filtered", {
         blocked: items.length - validatedItems.length,
-        terminalOrientation: 'portrait',
         itemsProcessed: items.map(i => ({ name: i.name }))
       });
     }
 
-    // FAIL-SAFE: Tela Nunca Vazia
     const FALLBACK = { id: 'fallback', name: 'Institucional', url: 'https://images.unsplash.com/photo-1557672172-298e090bd0f1?w=1920&h=1080&fit=crop', type: 'image', duration: 15, orientation: 'portrait', slotType: 'fallback' };
     const finalItems = validatedItems.length > 0 ? validatedItems : [FALLBACK];
     if (validatedItems.length === 0 && items.length > 0) {
-      console.warn("[FAIL-SAFE] Usando fallback");
       remoteLog(terminalId, "WARN", "Fail-Safe Activated");
     }
 
-    // Build settings
     const currentSettings = {
       orientation: 'portrait',
       powerMode: terminalData.power_mode || 'auto',
@@ -551,22 +310,16 @@ function App() {
     const playlistChanged = JSON.stringify(finalItems) !== JSON.stringify(effectiveItems);
     const settingsChanged = JSON.stringify(currentSettings) !== JSON.stringify(lastSentSettingsRef.current);
 
-    // Sempre atualizar items — se nada mudou, JSON.stringify garante que não há re-render desnecessário
     if (playlistChanged) {
       console.log(`[PLAYLIST] Items changed: ${effectiveItems.length} -> ${finalItems.length} items`);
       setEffectiveItems(finalItems);
       setDiag(prev => ({ ...prev, c: `M: ${finalItems.length} ${validatedItems.length === 0 ? '(FB)' : 'OK'}` }));
 
-      // ============================================
-      // SINCRONIZAR PLAYLIST PARA CACHE LOCAL (Offline-First v17)
-      // ============================================
       if (window.electronAPI?.syncPlaylistToCache) {
         console.log("[Cache] Syncing playlist to local cache...");
         remoteLog(terminalId, "INFO", "Cache Sync Started", { items: finalItems.length });
-
         window.electronAPI.syncPlaylistToCache(finalItems)
           .then((results) => {
-            console.log("[Cache] Sync complete:", results);
             setCacheMap(results || {});
             remoteLog(terminalId, "INFO", "Cache Sync Complete", {
               cached: Object.values(results || {}).filter(Boolean).length,
@@ -574,36 +327,24 @@ function App() {
             });
           })
           .catch((err) => {
-            console.error("[Cache] Sync failed:", err);
             remoteLog(terminalId, "ERROR", "Cache Sync Failed", { error: err.message });
           });
       }
     }
 
-    // Send to native (Android)
     if ((playlistChanged || settingsChanged) && finalItems.length > 0) {
-      const configPayload = {
-        playlist: finalItems,
-        settings: currentSettings
-      };
-
-      console.log("Pushing Config V17 to Native", configPayload.playlist.length);
-      remoteLog(terminalId, "INFO", "Pushing V17 Config to Native", { items: configPayload.playlist.length });
-
       try {
         if (window.Android) {
-          window.Android.updateConfig(JSON.stringify(configPayload));
+          window.Android.updateConfig(JSON.stringify({ playlist: finalItems, settings: currentSettings }));
         }
       } catch (err) {
-        console.error("Config Push Failed", err);
         remoteLog(terminalId, "ERROR", "Config Push Fail", { err: err.message });
       }
-
       lastSentSettingsRef.current = currentSettings;
     }
   }, [playlist, terminalData, terminalId]);
 
-  // 6. Heartbeat & Standby
+  // 7. Heartbeat & Standby
   useEffect(() => {
     if (!terminalData || !terminalId || !authReady) return;
 
@@ -622,79 +363,46 @@ function App() {
         const cl = (terminalData.operating_end || "22:00").substring(0, 5);
         const dayOfWeek = now.getDay();
         const isDayAllowed = days.includes(dayOfWeek);
-
-        // Lógica: standby se NÃO está no dia OU fora do horário
         const isOutsideHours = op <= cl
-          ? (time < op || time > cl)   // Horário normal (ex: 06:00 - 22:00)
-          : (time < op && time > cl);  // Horário overnight (ex: 22:00 - 06:00)
-
+          ? (time < op || time > cl)
+          : (time < op && time > cl);
         sb = !isDayAllowed || isOutsideHours;
-
-        // DEBUG LOGS
-        console.log('[STANDBY DEBUG] ==================');
-        console.log('[STANDBY DEBUG] Current Time:', time);
-        console.log('[STANDBY DEBUG] Day of Week:', dayOfWeek);
-        console.log('[STANDBY DEBUG] Allowed Days:', days);
-        console.log('[STANDBY DEBUG] Is Day Allowed:', isDayAllowed);
-        console.log('[STANDBY DEBUG] Operating Start:', op);
-        console.log('[STANDBY DEBUG] Operating End:', cl);
-        console.log('[STANDBY DEBUG] Is Outside Hours:', isOutsideHours);
-        console.log('[STANDBY DEBUG] Power Mode:', mode);
-        console.log('[STANDBY DEBUG] FINAL STANDBY:', sb);
-        console.log('[STANDBY DEBUG] ==================');
       }
       setIsStandby(sb);
 
-      // Native standby
       if (window.Android?.setStandbyMode) {
-        try {
-          window.Android.setStandbyMode(sb);
-        } catch (e) {
-          console.error('[STANDBY] Failed:', e);
-        }
+        try { window.Android.setStandbyMode(sb); } catch (e) { console.error('[STANDBY] Failed:', e); }
       }
 
-      // Update heartbeat
       await updateTerminalHeartbeat(terminalId, sb ? 'standby' : 'online', CURRENT_VERSION);
     };
 
     pulse();
-    const inv = setInterval(pulse, 60000); // Heartbeat: 60 segundos (economia de rede)
+    const inv = setInterval(pulse, 60000);
     return () => clearInterval(inv);
   }, [terminalData, terminalId, authReady]);
 
-  // 7. Flush de Logs em Lote (a cada 5 minutos)
+  // 8. Flush de Logs em Lote
   useEffect(() => {
     if (!terminalId || !authReady) return;
 
-    // Flush a cada 5 minutos para economia de rede/DB
     const flushInterval = setInterval(() => {
-      if (navigator.onLine) {
-        flushLogBuffer();
-      }
+      if (navigator.onLine) flushLogBuffer();
     }, BATCH_INTERVAL_MS);
 
-    // Flush inicial após 30 segundos
     const initialFlush = setTimeout(() => {
-      if (navigator.onLine) {
-        flushLogBuffer();
-      }
+      if (navigator.onLine) flushLogBuffer();
     }, 30000);
 
-    return () => {
-      clearInterval(flushInterval);
-      clearTimeout(initialFlush);
-    };
+    return () => { clearInterval(flushInterval); clearTimeout(initialFlush); };
   }, [terminalId, authReady]);
 
-  // 8. Listener de Progresso de Cache (Electron)
+  // 9. Cache Progress Listener
   useEffect(() => {
     if (!window.electronAPI?.onCacheProgress) return;
-
     window.electronAPI.onCacheProgress((data) => {
       setCacheProgress(data);
       if (data.type === 'progress' && data.percent === 100) {
-        // Limpar progresso após completar
         setTimeout(() => setCacheProgress(null), 3000);
       }
     });
@@ -702,9 +410,7 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* Notificação de Atualização */}
       <UpdateNotification />
-
       {showSplash && <SplashScreen />}
 
       {!terminalId ? (
@@ -738,251 +444,9 @@ function App() {
         </div>
       )}
 
-      {/* Web/Electron Player - quando não há window.Android */}
       {!showSplash && !isStandby && effectiveItems.length > 0 && !window.Android && (
-        <WebMediaPlayer
-          items={effectiveItems}
-          terminalId={terminalId}
-          cacheMap={cacheMap}
-        />
+        <WebMediaPlayer items={effectiveItems} terminalId={terminalId} cacheMap={cacheMap} />
       )}
-    </div>
-  );
-}
-
-// Componente WebMediaPlayer para rodar mídias (Offline-First v17 + HTML5 Video Nativo)
-function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
-  const [currentIndex, setCurrentIndex] = React.useState(0);
-  const [visible, setVisible] = React.useState(false); // Controle de fade-in
-  const currentItem = items[currentIndex];
-
-  // Obter URL para exibição (cache local ou remoto)
-  const getMediaUrl = (item) => {
-    // Verificar se temos caminho local em cache
-    const localPath = cacheMap[item.id];
-    if (localPath && window.electronAPI?.isElectron) {
-      const fileName = localPath.replace(/\\/g, '/').split('/').pop();
-      const cacheUrl = `media-cache://local/${fileName}`;
-      console.log(`[Player] Using cached: ${item.name} -> ${cacheUrl}`);
-      return cacheUrl;
-    }
-    console.log(`[Player] Using remote: ${item.name}`);
-    return item.url;
-  };
-
-
-  // Função para pular para próximo item com fade
-  const [playCount, setPlayCount] = React.useState(0);
-  const skipToNext = React.useCallback(() => {
-    console.log('[Player] Transitioning to next...');
-    setVisible(false); // Inicia fade-out
-
-    // Pequeno delay para o fade-out visual
-    setTimeout(() => {
-      setCurrentIndex(prev => (prev + 1) % items.length);
-      setPlayCount(c => c + 1);
-    }, 300);
-  }, [items.length]);
-
-  // Registrar log de exibição quando a mídia muda
-  React.useEffect(() => {
-    if (!currentItem || !terminalId) return;
-    // Não logar itens fallback (id não é UUID válido)
-    if (currentItem.id === 'fallback' || currentItem.slotType === 'fallback') return;
-
-    const logData = {
-      terminalId,
-      mediaId: currentItem.id,
-      mediaName: currentItem.name,
-      mediaUrl: currentItem.url,
-      slotIndex: currentIndex,
-      slotType: currentItem.slotType || 'unknown',
-      status: 'played',
-      appVersion: CURRENT_VERSION,
-      playedAt: new Date().toISOString(),
-      cachedLocally: !!cacheMap[currentItem.id]
-    };
-
-    addToLogBuffer(logData);
-    console.log(`[PoP] Buffered: "${currentItem.name}" (cached: ${!!cacheMap[currentItem.id]})`);
-  }, [currentItem?.id, terminalId, cacheMap]);
-
-  // Detectar tipo de mídia
-  const isCurrentRss = currentItem?.type === 'rss';
-  const isCurrentVideo = !isCurrentRss && currentItem && (
-    currentItem.type === 'video' ||
-    currentItem.url?.includes('.mp4') ||
-    currentItem.url?.includes('.webm') ||
-    currentItem.url?.includes('.mkv') ||
-    currentItem.url?.includes('.avi')
-  );
-
-
-  // Efeito principal de playback e transições
-  React.useEffect(() => {
-    if (!currentItem || items.length === 0) return;
-
-    // Iniciar animação de fade-in
-    const fadeTimer = setTimeout(() => setVisible(true), 100);
-
-    if (isCurrentRss) {
-      // === RSS: Slot dinâmico (notícias nativas) ===
-      console.log(`[Player] 📰 RSS slot: ${currentItem.name} (${currentItem.duration}s)`);
-      const duration = (currentItem.duration || 15) * 1000;
-      const timer = setTimeout(() => {
-        skipToNext();
-      }, duration);
-      return () => {
-        clearTimeout(fadeTimer);
-        clearTimeout(timer);
-      };
-    } else if (isCurrentVideo) {
-      // === VÍDEO: HTML5 nativo (sem mpv) ===
-      // O <video> tag no JSX faz o playback.
-      // onEnded chama skipToNext() diretamente — sem delay.
-      console.log(`[Player] 🎬 HTML5 video: ${currentItem.name}`);
-
-      // Safety timeout (caso o vídeo trave)
-      const safetyTimer = setTimeout(() => {
-        console.warn(`[Player] Video safety timeout for "${currentItem.name}"`);
-        skipToNext();
-      }, 5 * 60 * 1000); // 5 minutos
-
-      return () => {
-        clearTimeout(fadeTimer);
-        clearTimeout(safetyTimer);
-      };
-    } else {
-      // === IMAGEM: Timer normal ===
-      const duration = (currentItem.duration || 10) * 1000;
-      const timer = setTimeout(() => {
-        skipToNext();
-      }, duration);
-      return () => {
-        clearTimeout(fadeTimer);
-        clearTimeout(timer);
-      };
-    }
-  }, [currentIndex, currentItem, items, isCurrentVideo, isCurrentRss, playCount, skipToNext]);
-
-  if (!currentItem) {
-    return <div style={{ color: 'white' }}>Carregando mídia...</div>;
-  }
-
-  const mediaUrl = getMediaUrl(currentItem);
-
-  // Tela configurada como portrait no Windows — fullscreen direto
-  const containerStyle = {
-    width: '100vw',
-    height: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: '#000',
-    overflow: 'hidden'
-  };
-
-  const mediaStyle = {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover'
-  };
-
-  return (
-    <div style={containerStyle}>
-      <div className={`media-wrapper ${visible ? 'visible' : ''}`}>
-        {isCurrentRss ? (
-          <NewsSlot
-            key={`rss-${currentItem.id}`}
-            url={currentItem.url}
-            refreshMinutes={currentItem.refreshMinutes || 10}
-            onError={() => skipToNext()}
-          />
-        ) : isCurrentVideo ? (
-          <video
-            key={`${currentItem.id}-${playCount}`}
-            ref={(el) => {
-              if (el) {
-                el.play().catch(err => {
-                  console.warn('[Player] Video play() failed:', err.message);
-                });
-              }
-            }}
-            src={mediaUrl}
-            autoPlay
-            muted
-            playsInline
-            className="media-item"
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onEnded={skipToNext}
-            onError={(e) => {
-              const mediaErr = e.target.error;
-              const errCode = mediaErr?.code || 'unknown';
-              const errMsg = mediaErr?.message || 'no message';
-              // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
-              const codeMap = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' };
-              console.error(`[Player] Video error for "${currentItem.name}": code=${errCode} (${codeMap[errCode] || '?'}), msg="${errMsg}", src="${e.target.src}"`);
-
-              // Se veio do cache, limpar entrada corrompida para re-download na próxima rodada
-              if (mediaUrl.startsWith('media-cache://') && window.electronAPI?.removeCachedItem) {
-                console.warn(`[Player] Limpando cache corrompido: ${currentItem.name} (${currentItem.id})`);
-                window.electronAPI.removeCachedItem(currentItem.id).catch(() => { });
-              }
-
-              // Fallback: se cache local falhou, tentar URL remota
-              if (mediaUrl.startsWith('media-cache://') && currentItem.url && !e.target.dataset.fallback) {
-                console.warn(`[Player] Cache video failed, falling back to remote: ${currentItem.name}`);
-                e.target.dataset.fallback = 'true';
-                e.target.src = currentItem.url;
-                e.target.play().catch(() => { });
-              } else {
-                console.warn(`[Player] Video error, skipping: ${currentItem.name} (code=${errCode})`);
-                skipToNext();
-              }
-            }}
-          />
-        ) : (
-          <img
-            key={currentItem.id}
-            src={mediaUrl}
-            alt={currentItem.name}
-            className="media-item"
-            onError={(e) => {
-              if (mediaUrl.startsWith('media-cache://') && !e.target.dataset.fallback) {
-                e.target.dataset.fallback = 'true';
-                e.target.src = currentItem.url;
-              } else {
-                skipToNext();
-              }
-            }}
-          />
-        )}
-      </div>
-
-      {/* Mini indicador de progresso */}
-      <div style={{
-        position: 'absolute',
-        bottom: 20,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        display: 'flex',
-        gap: 8
-      }}>
-        {items.map((item, idx) => (
-          <div
-            key={idx}
-            title={cacheMap[item.id] ? 'Cached' : 'Remote'}
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: idx === currentIndex
-                ? '#6366f1'
-                : (cacheMap[item.id] ? 'rgba(34, 197, 94, 0.5)' : 'rgba(255,255,255,0.3)')
-            }}
-          />
-        ))}
-      </div>
     </div>
   );
 }

@@ -18,6 +18,9 @@ const crypto = require('crypto');
 // SQLite para persistência do índice de cache
 const Database = require('better-sqlite3');
 
+// Transcodificação automática de vídeos incompatíveis
+const videoTranscoder = require('./videoTranscoder');
+
 class CacheManager {
     constructor(cacheDir, maxSizeBytes = 5 * 1024 * 1024 * 1024) { // 5GB default
         this.cacheDir = cacheDir;
@@ -181,58 +184,92 @@ class CacheManager {
     }
 
     /**
-     * Download de arquivo via HTTP/HTTPS
+     * Download de arquivo via HTTP/HTTPS com verificação de integridade
      */
     _downloadFile(url, destPath, onProgress) {
         return new Promise((resolve, reject) => {
             const protocol = url.startsWith('https') ? https : http;
-            const file = fs.createWriteStream(destPath);
+
+            const cleanup = (filePath) => {
+                try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
+            };
 
             const request = protocol.get(url, (response) => {
                 // Handle redirects
                 if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-                    file.close();
-                    fs.unlinkSync(destPath);
+                    response.resume(); // Drain response
                     return this._downloadFile(response.headers.location, destPath, onProgress)
                         .then(resolve)
                         .catch(reject);
                 }
 
                 if (response.statusCode !== 200) {
-                    file.close();
-                    fs.unlinkSync(destPath);
+                    response.resume();
                     return reject(new Error(`HTTP ${response.statusCode}`));
                 }
 
                 const totalBytes = parseInt(response.headers['content-length'], 10) || 0;
                 let downloadedBytes = 0;
+                const file = fs.createWriteStream(destPath);
 
                 response.on('data', (chunk) => {
                     downloadedBytes += chunk.length;
+                    file.write(chunk);
                     if (onProgress && totalBytes > 0) {
                         onProgress(downloadedBytes, totalBytes);
                     }
                 });
 
-                response.pipe(file);
+                response.on('end', () => {
+                    file.end(() => {
+                        // Verificar integridade: bytes baixados vs content-length
+                        if (totalBytes > 0 && downloadedBytes < totalBytes) {
+                            console.error(`[CacheManager] Incomplete download: ${downloadedBytes}/${totalBytes} bytes`);
+                            cleanup(destPath);
+                            return reject(new Error(`Incomplete download: ${downloadedBytes}/${totalBytes}`));
+                        }
 
-                file.on('finish', () => {
-                    file.close();
-                    const stats = fs.statSync(destPath);
-                    resolve({ size: stats.size });
+                        try {
+                            const stats = fs.statSync(destPath);
+                            // Verificar se o arquivo tem tamanho razoável (> 1KB para vídeos)
+                            if (stats.size < 1024) {
+                                console.error(`[CacheManager] Downloaded file too small: ${stats.size} bytes`);
+                                cleanup(destPath);
+                                return reject(new Error(`File too small: ${stats.size} bytes`));
+                            }
+                            console.log(`[CacheManager] Download verified: ${stats.size} bytes (expected: ${totalBytes || 'unknown'})`);
+                            resolve({ size: stats.size });
+                        } catch (e) {
+                            cleanup(destPath);
+                            reject(e);
+                        }
+                    });
+                });
+
+                response.on('error', (err) => {
+                    file.destroy();
+                    cleanup(destPath);
+                    reject(err);
+                });
+
+                file.on('error', (err) => {
+                    file.destroy();
+                    cleanup(destPath);
+                    reject(err);
                 });
             });
 
             request.on('error', (err) => {
-                file.close();
-                if (fs.existsSync(destPath)) {
-                    fs.unlinkSync(destPath);
-                }
+                cleanup(destPath);
                 reject(err);
             });
 
-            request.setTimeout(60000, () => { // 60 segundos timeout
+            // Timeout proporcional: 60s base + 30s por MB esperado (mínimo 120s)
+            const totalBytes = 0; // Não sabemos ainda, usar timeout generoso
+            const timeoutMs = Math.max(120000, 300000); // 2-5 minutos
+            request.setTimeout(timeoutMs, () => {
                 request.destroy();
+                cleanup(destPath);
                 reject(new Error('Download timeout'));
             });
         });
@@ -276,7 +313,7 @@ class CacheManager {
     async _downloadMedia(mediaItem, onProgress) {
         const { id: mediaId, url, name } = mediaItem;
         const fileName = this._generateFileName(mediaId, url);
-        const destPath = path.join(this.mediaDir, fileName);
+        let destPath = path.join(this.mediaDir, fileName);
 
         console.log(`[CacheManager] Downloading: "${name}"`);
 
@@ -285,7 +322,22 @@ class CacheManager {
             const estimatedSize = 50 * 1024 * 1024;
             this._freeSpace(estimatedSize);
 
-            const { size } = await this._downloadFile(url, destPath, onProgress);
+            let { size } = await this._downloadFile(url, destPath, onProgress);
+
+            // Transcodificar se necessário (H.265 → H.264, etc.)
+            const isVideo = /\.(mp4|mkv|webm|avi|mov|m4v|wmv|flv)$/i.test(destPath);
+            if (isVideo) {
+                try {
+                    const transcodedPath = await videoTranscoder.ensureH264(destPath, name);
+                    if (transcodedPath !== destPath) {
+                        destPath = transcodedPath; // Transcodificado → novo arquivo
+                    }
+                    const newStats = fs.statSync(destPath);
+                    size = newStats.size;
+                } catch (transcodeErr) {
+                    console.warn(`[CacheManager] Transcode warning for "${name}": ${transcodeErr.message}`);
+                }
+            }
 
             // Registrar no banco
             const now = new Date().toISOString();
@@ -295,7 +347,7 @@ class CacheManager {
                 VALUES (?, ?, ?, ?, ?, ?)
             `).run(mediaId, url, destPath, size, now, now);
 
-            console.log(`[CacheManager] Downloaded: "${name}" (${Math.round(size / (1024 * 1024))}MB)`);
+            console.log(`[CacheManager] Ready: "${name}" (${Math.round(size / (1024 * 1024))}MB)`);
 
             return destPath;
         } catch (err) {

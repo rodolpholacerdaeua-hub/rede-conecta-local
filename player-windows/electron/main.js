@@ -7,6 +7,15 @@ const { execSync } = require('child_process');
 
 const { app, BrowserWindow, ipcMain, globalShortcut, protocol, powerSaveBlocker, net } = electron;
 
+// ============================================
+// FLAGS DO CHROMIUM: Desabilitar power-saving e throttling de vídeos
+// Sem essas flags, Chromium pausa vídeos mutados em background
+// ============================================
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('disable-background-media-suspend');
+
 // Flag de boot rápido: se o app demorou >5min após boot do Windows
 let isDelayedBoot = false;
 let bootDelaySeconds = 0;
@@ -126,6 +135,7 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            backgroundThrottling: false,
             preload: path.join(__dirname, 'preload.js')
         }
     });
@@ -330,11 +340,10 @@ function setupIpcHandlers() {
 // REGISTER FILE PROTOCOL para mídias locais
 // ============================================
 function setupMediaProtocol() {
-    protocol.handle('media-cache', (request) => {
+    protocol.handle('media-cache', async (request) => {
         try {
             // Parsear URL de forma segura (standard scheme usa host + pathname)
             // URL agora vem como: media-cache://local/filename.mp4
-            // (não mais com caminho absoluto Windows para evitar URL safety check do Chromium)
             const url = new URL(request.url);
 
             // pathname vem como /filename.mp4 - remover a / inicial
@@ -356,9 +365,13 @@ function setupMediaProtocol() {
                 return new Response('File not found', { status: 404 });
             }
 
-            // Usar net.fetch com pathToFileURL - suporta range requests nativamente
+            // Usar net.fetch com pathToFileURL + repassar headers originais
+            // CRÍTICO: sem Range header, o Chromium não consegue seek em vídeos
             const fileUrl = pathToFileURL(filePath).toString();
-            return net.fetch(fileUrl);
+            return net.fetch(fileUrl, {
+                method: request.method,
+                headers: request.headers,
+            });
         } catch (err) {
             console.error(`[MediaProtocol] Error:`, err.message);
             return new Response('File not found', { status: 404 });
@@ -404,7 +417,26 @@ app.whenReady().then(async () => {
     // ============================================
     // CRASH GUARD - Verificar crash loops
     // ============================================
-    crashGuard = new CrashGuard(app.getPath('userData'));
+    // Ler config do .env para o main process (sem Vite)
+    const supabaseConfig = (() => {
+        try {
+            const envPath = path.join(__dirname, '..', '.env');
+            const envFile = require('fs').readFileSync(envPath, 'utf-8');
+            const vars = {};
+            envFile.split('\n').forEach(line => {
+                const match = line.match(/^(VITE_\w+)=(.+)$/);
+                if (match) vars[match[1]] = match[2].trim();
+            });
+            return {
+                supabaseUrl: vars.VITE_SUPABASE_URL || '',
+                supabaseKey: vars.VITE_SUPABASE_ANON_KEY || ''
+            };
+        } catch (e) {
+            console.warn('[Electron] .env não encontrado, CrashGuard sem log remoto');
+            return { supabaseUrl: '', supabaseKey: '' };
+        }
+    })();
+    crashGuard = new CrashGuard(app.getPath('userData'), supabaseConfig);
     const isSafeMode = await crashGuard.check(app.getVersion());
     if (!isSafeMode) {
         crashGuard.startStabilityTimer();
