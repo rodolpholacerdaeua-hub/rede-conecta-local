@@ -351,6 +351,26 @@ class CacheManager {
     }
 
     /**
+     * Remover item específico do cache (ex: arquivo corrompido)
+     */
+    removeCached(mediaId) {
+        const entry = this.db.prepare('SELECT local_path FROM media_cache WHERE media_id = ?').get(mediaId);
+        if (entry) {
+            try {
+                if (fs.existsSync(entry.local_path)) {
+                    fs.unlinkSync(entry.local_path);
+                }
+            } catch (err) {
+                console.error(`[CacheManager] Error deleting ${entry.local_path}:`, err.message);
+            }
+            this.db.prepare('DELETE FROM media_cache WHERE media_id = ?').run(mediaId);
+            console.log(`[CacheManager] Removed corrupted cache: ${mediaId}`);
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Limpar todo o cache
      */
     clearAll() {

@@ -55,6 +55,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Verificar se mídia está em cache
     isCached: (mediaId) => ipcRenderer.invoke('cache-is-cached', mediaId),
 
+    // Remover item específico do cache (ex: arquivo corrompido)
+    removeCachedItem: (mediaId) => ipcRenderer.invoke('cache-remove-item', mediaId),
+
     // Limpar todo o cache
     clearCache: () => ipcRenderer.invoke('cache-clear-all'),
 

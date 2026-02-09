@@ -915,7 +915,31 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
             className="media-item"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onEnded={skipToNext}
-            onError={() => skipToNext()}
+            onError={(e) => {
+              const mediaErr = e.target.error;
+              const errCode = mediaErr?.code || 'unknown';
+              const errMsg = mediaErr?.message || 'no message';
+              // MediaError codes: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+              const codeMap = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' };
+              console.error(`[Player] Video error for "${currentItem.name}": code=${errCode} (${codeMap[errCode] || '?'}), msg="${errMsg}", src="${e.target.src}"`);
+
+              // Se veio do cache, limpar entrada corrompida para re-download na próxima rodada
+              if (mediaUrl.startsWith('media-cache://') && window.electronAPI?.removeCachedItem) {
+                console.warn(`[Player] Limpando cache corrompido: ${currentItem.name} (${currentItem.id})`);
+                window.electronAPI.removeCachedItem(currentItem.id).catch(() => { });
+              }
+
+              // Fallback: se cache local falhou, tentar URL remota
+              if (mediaUrl.startsWith('media-cache://') && currentItem.url && !e.target.dataset.fallback) {
+                console.warn(`[Player] Cache video failed, falling back to remote: ${currentItem.name}`);
+                e.target.dataset.fallback = 'true';
+                e.target.src = currentItem.url;
+                e.target.play().catch(() => { });
+              } else {
+                console.warn(`[Player] Video error, skipping: ${currentItem.name} (code=${errCode})`);
+                skipToNext();
+              }
+            }}
           />
         ) : (
           <img
@@ -924,7 +948,8 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
             alt={currentItem.name}
             className="media-item"
             onError={(e) => {
-              if (mediaUrl.startsWith('media-cache://')) {
+              if (mediaUrl.startsWith('media-cache://') && !e.target.dataset.fallback) {
+                e.target.dataset.fallback = 'true';
                 e.target.src = currentItem.url;
               } else {
                 skipToNext();

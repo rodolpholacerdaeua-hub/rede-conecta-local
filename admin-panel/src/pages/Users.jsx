@@ -127,7 +127,7 @@ const Users = () => {
         }
     };
 
-    // Criar cliente manualmente
+    // Criar cliente via Edge Function (não afeta sessão do admin)
     const handleAddClient = async () => {
         if (!newEmail || !newName) {
             alert('Email e nome são obrigatórios');
@@ -136,45 +136,44 @@ const Users = () => {
 
         setAdding(true);
         try {
-            // Gerar senha aleatória se não fornecida
-            const password = newPassword || Math.random().toString(36).slice(-8) + 'A1!';
-
-            // Criar usuário no Supabase Auth
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-                email: newEmail,
-                password: password,
-                options: {
-                    data: { name: newName }
-                }
-            });
-
-            if (authError) throw authError;
-
-            if (authData.user) {
-                // Inserir perfil na tabela users
-                const { error: profileError } = await supabase
-                    .from('users')
-                    .insert({
-                        id: authData.user.id,
-                        email: newEmail,
-                        name: newName,
-                        role: 'cliente',
-                        tokens: 0
-                    });
-
-                if (profileError) {
-                    console.error('Erro ao criar perfil:', profileError);
-                } else {
-                    // Recarregar lista de usuários
-                    const { data } = await supabase
-                        .from('users')
-                        .select('*')
-                        .order('created_at', { ascending: false });
-                    setUsers(data || []);
-                }
+            // Obter token do admin logado
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.access_token) {
+                throw new Error('Sessão expirada. Faça login novamente.');
             }
 
-            alert(`Cliente criado com sucesso!\n\nEmail: ${newEmail}\nSenha: ${password}\n\nGuarde essas informações!`);
+            // Chamar Edge Function (cria usuário sem trocar sessão)
+            const response = await fetch(
+                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session.access_token}`,
+                        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
+                    },
+                    body: JSON.stringify({
+                        email: newEmail,
+                        name: newName,
+                        password: newPassword || undefined
+                    })
+                }
+            );
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Erro ao criar usuário');
+            }
+
+            // Recarregar lista de usuários
+            const { data } = await supabase
+                .from('users')
+                .select('*')
+                .order('created_at', { ascending: false });
+            setUsers(data || []);
+
+            alert(`Cliente criado com sucesso!\n\nEmail: ${newEmail}\nSenha: ${result.password}\n\nGuarde essas informações!`);
             setShowAddModal(false);
             setNewEmail('');
             setNewName('');

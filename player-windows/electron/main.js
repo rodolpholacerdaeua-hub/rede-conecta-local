@@ -261,6 +261,11 @@ function setupIpcHandlers() {
         return cacheManager.isCached(mediaId);
     });
 
+    ipcMain.handle('cache-remove-item', (_, mediaId) => {
+        if (!cacheManager) return false;
+        return cacheManager.removeCached(mediaId);
+    });
+
     ipcMain.handle('cache-clear-all', () => {
         if (!cacheManager) return;
         cacheManager.clearAll();
