@@ -2,10 +2,10 @@
  * CampaignModeration — Approval & Rejection modals
  */
 import React from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { getPlanValidityDays } from '../../utils/planHelpers';
-import { propagateGlobalCampaign, allocateCampaignToSlots } from './campaignUtils';
+import { propagateGlobalCampaign, allocateCampaignToSlots, SWAP_FEE } from './campaignUtils';
 
 const CampaignModeration = ({
     // Approval
@@ -253,6 +253,122 @@ const CampaignModeration = ({
         }
     };
 
+    // ── Swap Approval ──────────────────────────────────────────
+    const handleApproveSwap = async (camp) => {
+        try {
+            const newMediaId = camp.pending_swap_media_id;
+            if (!newMediaId) return;
+
+            console.log(`🔄 [SWAP] Aprovando troca de mídia para campanha "${camp.name}"`);
+
+            // 1. Update campaign: set new media, clear pending, increment swap_count
+            const { error: campError } = await supabase
+                .from('campaigns')
+                .update({
+                    v_media_id: newMediaId,
+                    pending_swap_media_id: null,
+                    swap_count: (camp.swap_count || 0) + 1,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', camp.id);
+            if (campError) throw campError;
+
+            // 2. Update existing playlist_slots for this campaign (swap media in-place)
+            const { data: updatedSlots, error: slotsError } = await supabase
+                .from('playlist_slots')
+                .update({ media_id: newMediaId })
+                .eq('campaign_id', camp.id)
+                .select('id');
+
+            if (slotsError) {
+                console.error('[SWAP] Erro ao atualizar slots:', slotsError);
+            } else {
+                console.log(`🔄 [SWAP] ✅ ${updatedSlots?.length || 0} slots atualizados com nova mídia`);
+            }
+
+            // 3. Also update global slots if campaign is global
+            if (camp.is_global) {
+                const { data: globalUpdated } = await supabase
+                    .from('playlist_slots')
+                    .update({ media_id: newMediaId })
+                    .eq('slot_type', 'global')
+                    .eq('slot_index', 0)
+                    .select('id');
+                console.log(`🌐 [SWAP] ${globalUpdated?.length || 0} slots globais atualizados`);
+            }
+
+            // Update local state
+            setCampaigns(prev => prev.map(c =>
+                c.id === camp.id ? {
+                    ...c,
+                    v_media_id: newMediaId,
+                    pending_swap_media_id: null,
+                    swap_count: (c.swap_count || 0) + 1
+                } : c
+            ));
+
+            alert(`✅ Troca de mídia aprovada!\n\n${updatedSlots?.length || 0} slot(s) atualizado(s).\nA nova mídia já está no ar.`);
+        } catch (err) {
+            console.error('[SWAP] Erro:', err);
+            alert(`Erro ao aprovar troca: ${err.message}`);
+        }
+    };
+
+    const handleRejectSwap = async (camp) => {
+        try {
+            console.log(`🔄 [SWAP] Rejeitando troca de mídia para campanha "${camp.name}"`);
+
+            // 1. Clear pending swap from campaign
+            const { error: campError } = await supabase
+                .from('campaigns')
+                .update({
+                    pending_swap_media_id: null,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', camp.id);
+            if (campError) throw campError;
+
+            // 2. Refund the swap fee
+            const { data: ownerData } = await supabase
+                .from('users')
+                .select('tokens')
+                .eq('id', camp.owner_id)
+                .single();
+
+            if (ownerData) {
+                const newBalance = (ownerData.tokens || 0) + SWAP_FEE;
+                await supabase.from('users').update({ tokens: newBalance }).eq('id', camp.owner_id);
+
+                await supabase.from('credit_transactions').insert({
+                    user_id: camp.owner_id,
+                    campaign_id: camp.id,
+                    type: 'refund',
+                    amount: SWAP_FEE,
+                    balance_after: newBalance,
+                    description: `Reembolso troca rejeitada: ${camp.name}`,
+                    metadata: { swap_fee: SWAP_FEE }
+                });
+
+                console.log(`💰 [SWAP] Devolvidos R$${SWAP_FEE} para owner ${camp.owner_id}`);
+            }
+
+            // Update local state
+            setCampaigns(prev => prev.map(c =>
+                c.id === camp.id ? { ...c, pending_swap_media_id: null } : c
+            ));
+
+            alert(`Troca rejeitada.\nR$${SWAP_FEE} devolvidos ao anunciante.`);
+        } catch (err) {
+            console.error('[SWAP] Erro:', err);
+            alert(`Erro ao rejeitar troca: ${err.message}`);
+        }
+    };
+
+    // Find campaigns with pending swaps (admin only)
+    const pendingSwaps = userData?.role === 'admin'
+        ? campaigns.filter(c => c.pending_swap_media_id)
+        : [];
+
     return (
         <>
             {/* Approval Modal */}
@@ -368,6 +484,41 @@ const CampaignModeration = ({
                             </div>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Swap Approval Cards (inline, not modal) */}
+            {pendingSwaps.length > 0 && (
+                <div className="fixed bottom-6 right-6 z-50 space-y-3 max-w-sm">
+                    {pendingSwaps.map(camp => {
+                        const newMedia = camp.pending_swap_media_id;
+                        return (
+                            <div key={camp.id} className="bg-white rounded-2xl shadow-2xl border border-cyan-200 overflow-hidden animate-in slide-in-from-right">
+                                <div className="bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-white flex items-center gap-2">
+                                    <RefreshCw className="w-4 h-4" />
+                                    <span className="text-xs font-black uppercase tracking-wide">Troca de Mídia Pendente</span>
+                                </div>
+                                <div className="p-4 space-y-3">
+                                    <p className="text-sm font-black text-slate-800">{camp.name}</p>
+                                    <p className="text-[10px] text-slate-400 font-bold">Swap #{(camp.swap_count || 0) + 1} • Taxa R${SWAP_FEE} já cobrada</p>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => handleApproveSwap(camp)}
+                                            className="flex-1 px-3 py-2 bg-emerald-500 text-white text-[10px] font-black rounded-xl hover:bg-emerald-600 transition-all uppercase active:scale-95"
+                                        >
+                                            Aprovar Troca
+                                        </button>
+                                        <button
+                                            onClick={() => handleRejectSwap(camp)}
+                                            className="flex-1 px-3 py-2 bg-red-500 text-white text-[10px] font-black rounded-xl hover:bg-red-600 transition-all uppercase active:scale-95"
+                                        >
+                                            Rejeitar
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </>

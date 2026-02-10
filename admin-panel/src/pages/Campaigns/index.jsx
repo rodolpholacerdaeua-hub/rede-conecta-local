@@ -16,11 +16,15 @@ import CampaignForm from './CampaignForm';
 import CampaignList from './CampaignList';
 import CampaignDetails from './CampaignDetails';
 import CampaignModeration from './CampaignModeration';
+import MediaSwapModal from './MediaSwapModal';
 
 const Campaigns = () => {
     const { currentUser, userData } = useAuth();
 
     const data = useCampaignData(currentUser, userData);
+
+    // ── Swap state ──────────────────────────────────────────────────
+    const [swapCamp, setSwapCamp] = React.useState(null);
 
     // ── Handlers (thin wrappers living in orchestrator) ──────────────
     const handleDelete = async (id) => {
@@ -176,6 +180,7 @@ const Campaigns = () => {
                 onEdit={handleEditCampaign}
                 onDelete={handleDelete}
                 onRefinement={handleRefinementRequest}
+                onSwap={(c) => setSwapCamp(c)}
             />
 
             {/* Modals: Preview + Refinement */}
@@ -210,6 +215,16 @@ const Campaigns = () => {
                 setRejectionReason={data.setRejectionReason}
                 userData={userData}
             />
+
+            {/* Swap Modal */}
+            {swapCamp && (
+                <MediaSwapModal
+                    campaign={swapCamp}
+                    mediaFiles={data.mediaFiles}
+                    onClose={() => setSwapCamp(null)}
+                    onSwapSubmitted={() => setSwapCamp(null)}
+                />
+            )}
         </div>
     );
 };

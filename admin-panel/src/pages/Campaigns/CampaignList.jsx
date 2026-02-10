@@ -5,7 +5,7 @@ import React from 'react';
 import {
     Layers, Globe, Sparkles, Monitor, Eye,
     CheckCircle, XCircle, Clock, Edit2, Trash2,
-    ArrowUpRight
+    ArrowUpRight, RefreshCw
 } from 'lucide-react';
 import { getPlanValidityDays } from '../../utils/planHelpers';
 
@@ -27,6 +27,7 @@ const CampaignList = ({
     onEdit,
     onDelete,
     onRefinement,
+    onSwap,
 }) => {
     return (
         <div className="bg-white rounded-[2.5rem] border border-slate-100 premium-shadow overflow-hidden">
@@ -187,6 +188,23 @@ const CampaignList = ({
                                     {/* Controle */}
                                     <td className="px-8 py-6 text-right">
                                         <div className="flex items-center justify-end space-x-2">
+                                            {/* Swap button: only for approved monthly campaigns owned by cliente */}
+                                            {userData?.role === 'cliente' && c.moderation_status === 'approved' && !c.pending_swap_media_id && (
+                                                <button
+                                                    onClick={() => onSwap && onSwap(c)}
+                                                    className="p-2.5 bg-cyan-50 text-cyan-600 border border-cyan-100 rounded-xl hover:bg-cyan-100 transition-all active:scale-90"
+                                                    title="Trocar Mídia (R$19)"
+                                                >
+                                                    <RefreshCw className="w-5 h-5" />
+                                                </button>
+                                            )}
+                                            {/* Pending swap badge */}
+                                            {c.pending_swap_media_id && (
+                                                <span className="inline-flex items-center px-2 py-1 rounded-lg text-[9px] font-black bg-amber-50 text-amber-600 border border-amber-200">
+                                                    <RefreshCw className="w-3 h-3 mr-1 animate-spin" style={{ animationDuration: '3s' }} />
+                                                    Troca Pendente
+                                                </span>
+                                            )}
                                             {userData?.role === 'cliente' && c.moderation_status === 'rejected' && (
                                                 <button
                                                     onClick={() => onEdit(c)}

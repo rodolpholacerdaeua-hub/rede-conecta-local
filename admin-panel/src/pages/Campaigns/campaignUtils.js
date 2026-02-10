@@ -22,6 +22,9 @@ export const calculateCampaignCost = (slotsCount) => {
 // Taxa de alteração de campanha dentro da vigência
 export const EDIT_FEE = 35;
 
+// Taxa de troca de mídia (plano mensal)
+export const SWAP_FEE = 19;
+
 /**
  * Propagação de campanhas globais.
  * Quando uma campanha global é aprovada, atualiza o slot 'global'

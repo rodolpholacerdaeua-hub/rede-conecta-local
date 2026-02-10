@@ -94,7 +94,7 @@ const ResetPassword = () => {
                             </p>
                         </div>
                         <button
-                            onClick={() => navigate('/')}
+                            onClick={() => navigate('/login')}
                             className="w-full py-4 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2"
                         >
                             Ir para Login
@@ -154,7 +154,7 @@ const ResetPassword = () => {
                                 </div>
 
                                 <button
-                                    onClick={() => navigate('/')}
+                                    onClick={() => navigate('/login')}
                                     className="w-full py-4 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2"
                                 >
                                     Ir para Login

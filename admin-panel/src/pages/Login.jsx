@@ -30,7 +30,7 @@ const Login = () => {
         try {
             if (isLogin) {
                 await login(email, password);
-                navigate('/dashboard');
+                navigate('/redirect');
             } else {
                 if (!displayName) throw new Error("Nome é obrigatório");
                 await signup(email, password, displayName, phone);
@@ -78,7 +78,7 @@ const Login = () => {
                 {/* Background Pattern */}
                 <div className="absolute inset-0 opacity-10">
                     <div className="absolute top-20 left-20 w-72 h-72 bg-blue-500 rounded-full blur-3xl"></div>
-                    <div className="absolute bottom-20 right-20 w-96 h-96 bg-purple-500 rounded-full blur-3xl"></div>
+                    <div className="absolute bottom-20 right-20 w-96 h-96 bg-cyan-500 rounded-full blur-3xl"></div>
                     <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-cyan-500 rounded-full blur-3xl"></div>
                 </div>
 
@@ -134,8 +134,8 @@ const Login = () => {
                             </div>
                         </div>
                         <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
-                                <Monitor className="w-5 h-5 text-purple-400" />
+                            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center">
+                                <Monitor className="w-5 h-5 text-cyan-400" />
                             </div>
                             <div>
                                 <p className="font-semibold text-white">Proof of Play</p>
@@ -317,8 +317,8 @@ const Login = () => {
                                                 <button
                                                     onClick={() => setIsLogin(true)}
                                                     className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${isLogin
-                                                            ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg'
-                                                            : 'text-slate-400 hover:text-white'
+                                                        ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg'
+                                                        : 'text-slate-400 hover:text-white'
                                                         }`}
                                                 >
                                                     Entrar
@@ -326,8 +326,8 @@ const Login = () => {
                                                 <button
                                                     onClick={() => setIsLogin(false)}
                                                     className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${!isLogin
-                                                            ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg'
-                                                            : 'text-slate-400 hover:text-white'
+                                                        ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg'
+                                                        : 'text-slate-400 hover:text-white'
                                                         }`}
                                                 >
                                                     Criar Conta
