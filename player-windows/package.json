@@ -1,6 +1,6 @@
 {
     "name": "player-windows",
-    "version": "20.2.1",
+    "version": "20.2.2",
     "description": "Rede Conecta - Digital Signage Player (Offline-First, Cross-Platform)",
     "main": "electron/main.js",
     "scripts": {
@@ -14,7 +14,10 @@
         "test": "vitest run",
         "test:watch": "vitest"
     },
-    "author": "Antigravity",
+    "author": {
+        "name": "Antigravity",
+        "email": "contato@antigravity.dev"
+    },
     "license": "MIT",
     "homepage": "https://github.com/rodolpholacerdaeua-hub/rede-conecta-local",
     "dependencies": {
