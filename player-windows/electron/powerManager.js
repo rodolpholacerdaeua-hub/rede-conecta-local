@@ -17,10 +17,17 @@ const TASK_NAME = 'RedeConectaWake';
  */
 function ensureHibernateEnabled() {
     try {
+        // Habilitar hibernação
         execSync('powercfg /h on', { stdio: 'ignore' });
         console.log('[PowerManager] Hibernação habilitada');
+
+        // Habilitar wake timers (necessário para Task Scheduler acordar o PC)
+        execSync('powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_SLEEP RTCWAKE 1', { stdio: 'ignore' });
+        execSync('powercfg /SETDCVALUEINDEX SCHEME_CURRENT SUB_SLEEP RTCWAKE 1', { stdio: 'ignore' });
+        execSync('powercfg /SETACTIVE SCHEME_CURRENT', { stdio: 'ignore' });
+        console.log('[PowerManager] Wake timers habilitados');
     } catch (err) {
-        console.warn('[PowerManager] Não foi possível habilitar hibernação:', err.message);
+        console.warn('[PowerManager] Não foi possível configurar power settings:', err.message);
     }
 }
 
