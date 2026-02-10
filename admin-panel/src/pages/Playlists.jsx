@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
     Play, Plus, Clock, Trash2, Save, Check, FileVideo, Monitor,
     Image as ImageIcon, Globe, Sparkles, Zap, Building2, Megaphone,
-    Newspaper, GripVertical, X, Link2
+    Crown, GripVertical, X
 } from 'lucide-react';
 import { supabase, createPlaylist, updatePlaylist, deletePlaylist, listPlaylists, listMedia } from '../supabase';
 import { useAuth } from '../contexts/AuthContext';
 
-// Definição da estrutura do ciclo de slots (13 slots: 1 global + 1 parceiro + 1 dinâmico + 10 locais)
-// Durações: Global=10s, Parceiro=16s, Local=16s, Dinâmico=15s
+// Definição da estrutura do ciclo de slots (13 slots: 1 global + 1 parceiro + 1 coringa + 10 locais)
+// Durações: Global=10s, Parceiro=16s, Local=16s, Coringa=20s
 const SLOT_CYCLE = [
     { type: 'global', label: 'GLOBAL', color: 'from-indigo-500 to-purple-600', icon: Globe, description: 'Institucional da Rede', duration: 10 },
     { type: 'partner', label: 'PARCEIRO', color: 'from-amber-400 to-orange-500', icon: Building2, description: 'Estabelecimento Anfitrião', duration: 16 },
@@ -17,7 +17,7 @@ const SLOT_CYCLE = [
     { type: 'local', label: 'LOCAL', color: 'from-blue-400 to-blue-600', icon: Megaphone, description: 'Anunciante 3', duration: 16 },
     { type: 'local', label: 'LOCAL', color: 'from-blue-400 to-blue-600', icon: Megaphone, description: 'Anunciante 4', duration: 16 },
     { type: 'local', label: 'LOCAL', color: 'from-blue-400 to-blue-600', icon: Megaphone, description: 'Anunciante 5', duration: 16 },
-    { type: 'dynamic', label: 'DINÂMICO', color: 'from-teal-400 to-emerald-500', icon: Newspaper, description: 'Notícias / Tempo', duration: 10 },
+    { type: 'wildcard', label: 'CORINGA', color: 'from-yellow-400 to-amber-500', icon: Crown, description: 'Slot Ouro • Global', duration: 20 },
     { type: 'local', label: 'LOCAL', color: 'from-blue-400 to-blue-600', icon: Megaphone, description: 'Anunciante 6', duration: 16 },
     { type: 'local', label: 'LOCAL', color: 'from-blue-400 to-blue-600', icon: Megaphone, description: 'Anunciante 7', duration: 16 },
     { type: 'local', label: 'LOCAL', color: 'from-blue-400 to-blue-600', icon: Megaphone, description: 'Anunciante 8', duration: 16 },
@@ -139,12 +139,8 @@ const MediaSelector = ({ slotType, onSelect, onClose }) => {
                 return mediaFiles.filter(m => m.category === 'partner');
             case 'local':
                 return campaigns;
-            case 'dynamic':
-                return [
-                    { id: 'news_widget', name: 'Notícias do Dia', type: 'widget', icon: 'news' },
-                    { id: 'weather_widget', name: 'Previsão do Tempo', type: 'widget', icon: 'weather' },
-                    { id: 'trivia_widget', name: 'Curiosidades', type: 'widget', icon: 'trivia' }
-                ];
+            case 'wildcard':
+                return mediaFiles; // Coringa: todas as mídias disponíveis
             default:
                 return mediaFiles;
         }
@@ -157,7 +153,7 @@ const MediaSelector = ({ slotType, onSelect, onClose }) => {
             case 'global': return { title: 'Institucional', subtitle: 'Mídias da rede', color: 'indigo' };
             case 'partner': return { title: 'Parceiro', subtitle: 'Mídia do estabelecimento', color: 'amber' };
             case 'local': return { title: 'Anunciante', subtitle: 'Campanhas aprovadas', color: 'blue' };
-            case 'dynamic': return { title: 'Dinâmico', subtitle: 'Widgets interativos', color: 'teal' };
+            case 'wildcard': return { title: 'Slot Coringa', subtitle: 'Curiosidades, institucional ou premium', color: 'amber' };
             default: return { title: 'Selecionar', subtitle: '', color: 'slate' };
         }
     };
@@ -230,10 +226,7 @@ const Playlists = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [selectedSlotIndex, setSelectedSlotIndex] = useState(null);
     const [showSelector, setShowSelector] = useState(false);
-    // Modal do slot dinâmico
-    const [showDynamicModal, setShowDynamicModal] = useState(false);
-    const [dynamicSlotIndex, setDynamicSlotIndex] = useState(null);
-    const [dynamicUrl, setDynamicUrl] = useState('');
+
 
     // Carregar playlists do Supabase (com prevenção de race conditions - Context7)
     useEffect(() => {
@@ -300,29 +293,15 @@ const Playlists = () => {
             // Converter para o formato de array de 13 posições
             const slotsArray = Array(13).fill(null);
             data?.forEach(slot => {
-                if (slot.slot_index >= 0 && slot.slot_index < 13) {
-                    // Slot dinâmico com webview (sem mídia)
-                    if (slot.slot_type === 'dynamic' && slot.dynamic_config?.url) {
-                        slotsArray[slot.slot_index] = {
-                            id: `webview-${slot.slot_index}`,
-                            name: 'Notícias (Webview)',
-                            url: slot.dynamic_config.url,
-                            type: 'webview',
-                            thumbnail: null,
-                            duration: slot.duration || 15,
-                            dynamic_config: slot.dynamic_config
-                        };
-                    } else if (slot.media) {
-                        // Slot normal com mídia
-                        slotsArray[slot.slot_index] = {
-                            id: slot.media.id,
-                            name: slot.media.name,
-                            url: slot.media.url,
-                            type: slot.media.type,
-                            thumbnail: slot.media.type === 'image' ? slot.media.url : null,
-                            duration: slot.duration || slot.media.duration || 10
-                        };
-                    }
+                if (slot.slot_index >= 0 && slot.slot_index < 13 && slot.media) {
+                    slotsArray[slot.slot_index] = {
+                        id: slot.media.id,
+                        name: slot.media.name,
+                        url: slot.media.url,
+                        type: slot.media.type,
+                        thumbnail: slot.media.type === 'image' ? slot.media.url : null,
+                        duration: slot.duration || slot.media.duration || 10
+                    };
                 }
             });
             setSlots(slotsArray);
@@ -362,48 +341,10 @@ const Playlists = () => {
     };
 
     const handleSlotClick = (index) => {
-        const slotDef = SLOT_CYCLE[index % SLOT_CYCLE.length];
-
-        // Slot dinâmico: abrir modal de configuração
-        if (slotDef.type === 'dynamic') {
-            const currentUrl = slots[index]?.dynamic_config?.url || slots[index]?.url || '';
-            setDynamicSlotIndex(index);
-            setDynamicUrl(currentUrl);
-            setShowDynamicModal(true);
-            return;
-        }
-
-        // Outros slots: abrir seletor de mídia
         setSelectedSlotIndex(index);
         setShowSelector(true);
     };
 
-    const handleSaveDynamicConfig = () => {
-        if (dynamicSlotIndex === null) return;
-        const slotDef = SLOT_CYCLE[dynamicSlotIndex % SLOT_CYCLE.length];
-
-        if (dynamicUrl.trim()) {
-            const newSlots = [...slots];
-            newSlots[dynamicSlotIndex] = {
-                id: `rss-${dynamicSlotIndex}`,
-                name: 'Notícias (RSS)',
-                url: dynamicUrl.trim(),
-                type: 'rss',
-                thumbnail: null,
-                duration: slotDef.duration || 15,
-                dynamic_config: { url: dynamicUrl.trim(), type: 'rss', refreshMinutes: 10 }
-            };
-            setSlots(newSlots);
-        } else {
-            // URL vazia = limpar o slot
-            const newSlots = [...slots];
-            newSlots[dynamicSlotIndex] = null;
-            setSlots(newSlots);
-        }
-
-        setShowDynamicModal(false);
-        setDynamicSlotIndex(null);
-    };
 
     const handleAssignToSlot = (item) => {
         if (selectedSlotIndex === null) return;
@@ -441,7 +382,7 @@ const Playlists = () => {
 
             if (deleteError) throw deleteError;
 
-            // 2. Inserir novos slots (mídia + webview dinâmico)
+            // 2. Inserir novos slots
             const isValidUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
             const slotsToInsert = slots
@@ -449,19 +390,6 @@ const Playlists = () => {
                     if (!slot) return null;
                     const slotType = SLOT_CYCLE[index % SLOT_CYCLE.length].type;
 
-                    // Slot dinâmico com webview
-                    if (slot.type === 'webview' && slot.dynamic_config) {
-                        return {
-                            playlist_id: selectedPlaylistId,
-                            slot_index: index,
-                            media_id: null,
-                            slot_type: slotType,
-                            duration: slot.duration || 15,
-                            dynamic_config: slot.dynamic_config
-                        };
-                    }
-
-                    // Slot normal com mídia (precisa de UUID válido)
                     if (!isValidUUID(slot.id)) {
                         console.warn(`[Playlists] Skipping slot ${index}: invalid UUID "${slot.id}"`);
                         return null;
@@ -471,7 +399,7 @@ const Playlists = () => {
                         slot_index: index,
                         media_id: slot.id,
                         slot_type: slotType,
-                        duration: slot.duration || 10
+                        duration: slot.duration || SLOT_CYCLE[index % SLOT_CYCLE.length].duration || 10
                     };
                 })
                 .filter(Boolean);
@@ -635,80 +563,6 @@ const Playlists = () => {
                 )}
             </div>
 
-            {/* Modal Configuração do Slot Dinâmico */}
-            {showDynamicModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDynamicModal(false)}>
-                    <div
-                        className="bg-white rounded-2xl w-[480px] max-h-[80vh] overflow-hidden shadow-2xl"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <div className="bg-gradient-to-r from-teal-500 to-emerald-500 px-6 py-4 text-white">
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <h3 className="font-bold text-lg flex items-center gap-2">
-                                        <Newspaper className="w-5 h-5" />
-                                        Slot Dinâmico
-                                    </h3>
-                                    <p className="text-sm opacity-80">Configurar widget de notícias</p>
-                                </div>
-                                <button onClick={() => setShowDynamicModal(false)} className="p-2 hover:bg-white/20 rounded-lg">
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="p-6 space-y-5">
-                            {/* URL do Feed RSS */}
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">
-                                    <Link2 className="w-4 h-4 inline mr-1" />
-                                    URL do Feed RSS
-                                </label>
-                                <input
-                                    type="url"
-                                    value={dynamicUrl}
-                                    onChange={(e) => setDynamicUrl(e.target.value)}
-                                    placeholder="https://g1.globo.com/dynamo/rio-de-janeiro/rss2.xml"
-                                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm focus:border-teal-400 focus:ring-2 focus:ring-teal-100 outline-none transition-all"
-                                    autoFocus
-                                />
-                                <p className="mt-1.5 text-xs text-slate-400">
-                                    Cole a URL de qualquer feed RSS. Atualização automática a cada 10 minutos.
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Footer */}
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between">
-                            <button
-                                onClick={() => {
-                                    setDynamicUrl('');
-                                    handleSaveDynamicConfig();
-                                }}
-                                className="px-4 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                            >
-                                Limpar Slot
-                            </button>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setShowDynamicModal(false)}
-                                    className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    onClick={handleSaveDynamicConfig}
-                                    disabled={!dynamicUrl.trim()}
-                                    className="px-5 py-2 text-sm font-bold text-white bg-teal-500 hover:bg-teal-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                    Salvar
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Modal Seletor */}
             {showSelector && selectedSlotIndex !== null && (

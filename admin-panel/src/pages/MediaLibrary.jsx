@@ -186,7 +186,7 @@ const MediaLibrary = () => {
                 video.onloadedmetadata = () => {
                     clearTimeout(timeout);
                     URL.revokeObjectURL(url);
-                    resolve({ width: video.videoWidth, height: video.videoHeight });
+                    resolve({ width: video.videoWidth, height: video.videoHeight, duration: video.duration });
                 };
                 video.onerror = (e) => {
                     console.error("Erro no elemento de vídeo:", e);
@@ -301,6 +301,15 @@ const MediaLibrary = () => {
                 return;
             }
 
+            // Validação de duração (máx 16s: 15s comerciais + 1s reserva)
+            const MAX_VIDEO_DURATION = 16;
+            if (file.type.startsWith('video/') && dims.duration && dims.duration > MAX_VIDEO_DURATION) {
+                alert(`❌ DURAÇÃO EXCEDIDA: O vídeo tem ${Math.ceil(dims.duration)} segundos.\n\nO limite máximo é de 15 segundos por slot. Por favor, edite seu vídeo antes de fazer o upload.`);
+                setUploading(false);
+                resetInput();
+                return;
+            }
+
             // Simular progresso (Supabase não tem callback de progresso nativo)
             const progressInterval = setInterval(() => {
                 setProgress(prev => Math.min(prev + 10, 90));
@@ -341,7 +350,8 @@ const MediaLibrary = () => {
                 storage_path: uploadData.path,
                 file_size: file.size,
                 owner_id: currentUser.id,
-                thumbnail: thumbnailUrl
+                thumbnail: thumbnailUrl,
+                duration: isVideo && dims.duration ? Math.round(dims.duration) : null
             });
 
             if (dbError) {

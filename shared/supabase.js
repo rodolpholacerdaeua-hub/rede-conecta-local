@@ -13,8 +13,17 @@ import { createClient } from '@supabase/supabase-js';
 // ================================================
 // CONFIGURAÇÃO DO SUPABASE
 // ================================================
-const SUPABASE_URL = 'https://tmohttbxrdpxtfjjlkkp.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRtb2h0dGJ4cmRweHRmampsa2twIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDk4MTEsImV4cCI6MjA4NTYyNTgxMX0.0G6oBHWZ7pftGzQW4Xg43EWi0_6yUeha9scEX2alW0Y';
+// Suporta ambos: Node.js (process.env) e Vite (import.meta.env)
+const SUPABASE_URL = (typeof process !== 'undefined' && process.env?.VITE_SUPABASE_URL)
+    || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL)
+    || '';
+const SUPABASE_ANON_KEY = (typeof process !== 'undefined' && process.env?.VITE_SUPABASE_ANON_KEY)
+    || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY)
+    || '';
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.warn('[Supabase Shared] VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY não configuradas');
+}
 
 // ================================================
 // CLIENTE SUPABASE

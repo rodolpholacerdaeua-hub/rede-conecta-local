@@ -292,25 +292,35 @@ export function getPublicUrl(path) {
 // ================================================
 
 /**
- * Operação em lote
+ * Operação em lote com tratamento de falha parcial
+ * Executa todas as operações em paralelo e reporta falhas
+ * @throws {Error} Se qualquer operação falhar (inclui detalhes de todas as falhas)
  */
 export async function batchWrite(operations) {
-    const results = [];
-
-    for (const op of operations) {
+    const promises = operations.map(async (op, index) => {
         if (op.type === 'set' || op.type === 'update') {
-            const result = await updateDocument(op.collection, op.docId, op.data);
-            results.push(result);
+            return updateDocument(op.collection, op.docId, op.data);
         } else if (op.type === 'delete') {
             await deleteDocument(op.collection, op.docId);
-            results.push({ deleted: true });
+            return { deleted: true };
         } else if (op.type === 'create') {
-            const result = await createDocument(op.collection, op.data);
-            results.push(result);
+            return createDocument(op.collection, op.data);
         }
+        throw new Error(`Tipo de operação desconhecido: ${op.type} (índice ${index})`);
+    });
+
+    const results = await Promise.allSettled(promises);
+
+    const failures = results
+        .map((r, i) => r.status === 'rejected' ? { index: i, reason: r.reason?.message || r.reason } : null)
+        .filter(Boolean);
+
+    if (failures.length > 0) {
+        const details = failures.map(f => `[op ${f.index}]: ${f.reason}`).join('; ');
+        throw new Error(`batchWrite: ${failures.length}/${operations.length} operações falharam — ${details}`);
     }
 
-    return results;
+    return results.map(r => r.value);
 }
 
 // Export supabase para uso direto quando necessário

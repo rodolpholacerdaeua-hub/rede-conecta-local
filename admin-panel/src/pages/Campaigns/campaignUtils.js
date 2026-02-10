@@ -106,10 +106,10 @@ export const propagateGlobalCampaign = async (campData) => {
 };
 
 /**
- * Propagação do Slot Dinâmico (Slot 7).
- * Atualiza a mídia do slot 7 (dynamic) em todas as playlists da rede.
+ * Propagação do Slot Coringa (Slot 7).
+ * Atualiza a mídia do slot 7 (wildcard) em todas as playlists da rede.
  */
-export const propagateDynamicContent = async (mediaId) => {
+export const propagateWildcardContent = async (mediaId) => {
     try {
         const { data: mediaData, error: mediaError } = await supabase
             .from('media')
@@ -121,7 +121,7 @@ export const propagateDynamicContent = async (mediaId) => {
             return { success: false, message: 'Mídia não encontrada' };
         }
 
-        console.log(`[DYNAMIC] 📡 Propagando conteúdo dinâmico: "${mediaData.name}"`);
+        console.log(`[WILDCARD] 📡 Propagando conteúdo coringa: "${mediaData.name}"`);
 
         const { data: playlists } = await supabase
             .from('playlists')
@@ -141,7 +141,7 @@ export const propagateDynamicContent = async (mediaId) => {
                     .from('playlist_slots')
                     .update({
                         media_id: mediaId,
-                        duration: mediaData.duration || 15
+                        duration: mediaData.duration || 20
                     })
                     .eq('id', existingSlot.id);
                 if (!error) updatedCount++;
@@ -151,18 +151,18 @@ export const propagateDynamicContent = async (mediaId) => {
                     .insert({
                         playlist_id: playlist.id,
                         slot_index: 7,
-                        slot_type: 'dynamic',
+                        slot_type: 'wildcard',
                         media_id: mediaId,
-                        duration: mediaData.duration || 15
+                        duration: mediaData.duration || 20
                     });
                 if (!error) updatedCount++;
             }
         }
 
-        console.log(`[DYNAMIC] ✅ Atualizado ${updatedCount} playlists com conteúdo dinâmico`);
+        console.log(`[WILDCARD] ✅ Atualizado ${updatedCount} playlists com conteúdo coringa`);
         return { success: true, updatedCount };
     } catch (error) {
-        console.error('[DYNAMIC] Erro na propagação:', error);
+        console.error('[WILDCARD] Erro na propagação:', error);
         return { success: false, message: error.message };
     }
 };
@@ -170,7 +170,7 @@ export const propagateDynamicContent = async (mediaId) => {
 /**
  * Alocação Inteligente de Campanha nos Slots Locais.
  * 
- * Ordem: 2→3→4→5→6 (pula 7=dinâmico) → 8→9→10→11→12
+ * Ordem: 2→3→4→5→6 (pula 7=coringa) → 8→9→10→11→12
  * 
  * @param {string} campaignId - ID da campanha aprovada
  * @param {string} mediaId - ID da mídia da campanha

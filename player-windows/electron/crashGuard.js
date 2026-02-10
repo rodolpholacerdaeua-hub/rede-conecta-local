@@ -15,16 +15,14 @@ const https = require('https');
 const os = require('os');
 const crypto = require('crypto');
 
-// Supabase REST API (usado direto do main process)
-const SUPABASE_URL = 'https://tmohttbxrdpxtfjjlkkp.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRtb2h0dGJ4cmRweHRmampsa2twIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDk4MTEsImV4cCI6MjA4NTYyNTgxMX0.0G6oBHWZ7pftGzQW4Xg43EWi0_6yUeha9scEX2alW0Y';
-
 const MAX_CRASHES = 3;
 const STABILITY_TIMEOUT_MS = 30000; // 30 segundos
 
 class CrashGuard {
-    constructor(userDataPath) {
+    constructor(userDataPath, config = {}) {
         this.counterFile = path.join(userDataPath, 'crash-counter.json');
+        this.supabaseUrl = config.supabaseUrl || '';
+        this.supabaseKey = config.supabaseKey || '';
         this.crashData = this._readCounter();
         this.isSafeMode = false;
     }
@@ -85,6 +83,10 @@ class CrashGuard {
      */
     _sendCriticalLog(appVersion) {
         return new Promise((resolve) => {
+            if (!this.supabaseUrl || !this.supabaseKey) {
+                console.warn('[CrashGuard] Supabase config ausente, skip log remoto');
+                return resolve(false);
+            }
             const hardwareId = this._getHardwareId();
             const payload = JSON.stringify({
                 terminal_id: null, // Será linkado pelo hardware_id no metadata
@@ -101,7 +103,7 @@ class CrashGuard {
                 }
             });
 
-            const url = new URL(`${SUPABASE_URL}/rest/v1/terminal_logs`);
+            const url = new URL(`${this.supabaseUrl}/rest/v1/terminal_logs`);
             const options = {
                 hostname: url.hostname,
                 port: 443,
@@ -109,8 +111,8 @@ class CrashGuard {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'apikey': SUPABASE_ANON_KEY,
-                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                    'apikey': this.supabaseKey,
+                    'Authorization': `Bearer ${this.supabaseKey}`,
                     'Prefer': 'return=minimal',
                     'Content-Length': Buffer.byteLength(payload)
                 }

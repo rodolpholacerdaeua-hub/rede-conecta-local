@@ -34,7 +34,7 @@ const AIAgentSimulator = () => {
                     .eq('status', 'pending');
 
                 if (userData.role !== 'admin') {
-                    query = query.eq('owner_id', currentUser.id);
+                    query = query.eq('user_id', currentUser.id);
                 }
 
                 const { data, error } = await query;

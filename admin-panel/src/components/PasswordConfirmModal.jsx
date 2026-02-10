@@ -51,11 +51,11 @@ const PasswordConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) =>
 
             // Senha correta — executar a ação
             await onConfirm();
-            onClose();
         } catch (err) {
-            setError(err.message || 'Erro ao verificar senha.');
+            console.error('[PasswordConfirmModal] Error:', err.message);
         } finally {
             setLoading(false);
+            onClose();
         }
     };
 

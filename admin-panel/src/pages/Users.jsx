@@ -136,6 +136,13 @@ const Users = () => {
 
         setAdding(true);
         try {
+            // Renovar sessão para garantir token válido
+            const { error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError) {
+                alert('Sessão expirada. Faça logout e login novamente.');
+                return;
+            }
+
             // Obter token do admin logado
             const { data: { session } } = await supabase.auth.getSession();
             if (!session?.access_token) {

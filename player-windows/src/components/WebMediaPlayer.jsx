@@ -1,5 +1,4 @@
 import React from 'react';
-import NewsSlot from './NewsSlot';
 import { addToLogBuffer } from '../utils/telemetry';
 
 const CURRENT_VERSION = `V${typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'}`;
@@ -78,8 +77,7 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
         console.log(`[PoP] Buffered: "${currentItem.name}" (cached: ${!!cacheMapRef.current[currentItem.id]})`);
     }, [currentItem?.id, terminalId]);
 
-    const isCurrentRss = currentItem?.type === 'rss';
-    const isCurrentVideo = !isCurrentRss && currentItem && (
+    const isCurrentVideo = currentItem && (
         currentItem.type === 'video' ||
         currentItem.url?.includes('.mp4') ||
         currentItem.url?.includes('.webm') ||
@@ -94,12 +92,7 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
 
         const fadeTimer = setTimeout(() => setVisible(true), 100);
 
-        if (isCurrentRss) {
-            console.log(`[Player] 📰 RSS slot: ${currentItem.name} (${currentItem.duration}s)`);
-            const duration = (currentItem.duration || 15) * 1000;
-            const timer = setTimeout(() => skipToNext(), duration);
-            return () => { clearTimeout(fadeTimer); clearTimeout(timer); };
-        } else if (isCurrentVideo) {
+        if (isCurrentVideo) {
             console.log(`[Player] 🎬 HTML5 video: ${currentItem.name}`);
             const safetyTimer = setTimeout(() => {
                 console.warn(`[Player] Video safety timeout for "${currentItem.name}"`);
@@ -111,7 +104,7 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
             const timer = setTimeout(() => skipToNext(), duration);
             return () => { clearTimeout(fadeTimer); clearTimeout(timer); };
         }
-    }, [currentIndex, currentItem, items, isCurrentVideo, isCurrentRss, playCount, skipToNext]);
+    }, [currentIndex, currentItem, items, isCurrentVideo, playCount, skipToNext]);
 
     if (!currentItem) {
         return <div style={{ color: 'white' }}>Carregando mídia...</div>;
@@ -132,14 +125,7 @@ function WebMediaPlayer({ items, terminalId, cacheMap = {} }) {
     return (
         <div style={containerStyle}>
             <div className={`media-wrapper ${visible ? 'visible' : ''}`}>
-                {isCurrentRss ? (
-                    <NewsSlot
-                        key={`rss-${currentItem.id}`}
-                        url={currentItem.url}
-                        refreshMinutes={currentItem.refreshMinutes || 10}
-                        onError={() => skipToNext()}
-                    />
-                ) : isCurrentVideo ? (
+                {isCurrentVideo ? (
                     <video
                         key={`${currentItem.id}-${playCount}`}
                         src={mediaUrl}

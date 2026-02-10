@@ -5,9 +5,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Configuração do Supabase
-const SUPABASE_URL = 'https://tmohttbxrdpxtfjjlkkp.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRtb2h0dGJ4cmRweHRmampsa2twIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDk4MTEsImV4cCI6MjA4NTYyNTgxMX0.0G6oBHWZ7pftGzQW4Xg43EWi0_6yUeha9scEX2alW0Y';
+// Configuração do Supabase via variáveis de ambiente
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.error('[Supabase] VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY devem estar no .env');
+}
 
 // Cliente Supabase
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

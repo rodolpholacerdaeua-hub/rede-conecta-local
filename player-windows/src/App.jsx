@@ -223,9 +223,16 @@ function App() {
     };
     fetchPlaylist();
 
+    // Debounce: admin save does DELETE-all + INSERT-all, firing multiple events.
+    // Wait 2s after last event to avoid fetching partial data mid-save.
+    let slotsDebounceTimer = null;
     const slotsChannel = subscribeToPlaylist(playlistId, () => {
-      console.log('[REALTIME] playlist_slots changed, refetching...');
-      fetchPlaylist();
+      console.log('[REALTIME] playlist_slots changed, debouncing refetch...');
+      if (slotsDebounceTimer) clearTimeout(slotsDebounceTimer);
+      slotsDebounceTimer = setTimeout(() => {
+        console.log('[REALTIME] Debounce complete, refetching playlist...');
+        fetchPlaylist();
+      }, 2000);
     });
 
     const playlistChannel = supabase
@@ -241,6 +248,7 @@ function App() {
       .subscribe();
 
     return () => {
+      if (slotsDebounceTimer) clearTimeout(slotsDebounceTimer);
       supabase.removeChannel(slotsChannel);
       supabase.removeChannel(playlistChannel);
     };
@@ -253,33 +261,23 @@ function App() {
 
     if (playlist?.playlist_slots) {
       items = playlist.playlist_slots
-        .filter(slot => slot.media || (slot.slot_type === 'dynamic' && slot.dynamic_config?.url))
+        .filter(slot => slot.media)
         .sort((a, b) => a.slot_index - b.slot_index)
-        .map(slot => {
-          if (slot.slot_type === 'dynamic' && slot.dynamic_config?.url) {
-            return {
-              id: `dynamic-${slot.slot_index}`, name: 'Notícias', url: slot.dynamic_config.url,
-              type: 'rss', duration: slot.duration || 15, slotType: 'dynamic', orientation: 'portrait',
-              refreshMinutes: slot.dynamic_config.refreshMinutes || 10, startDate: null, endDate: null
-            };
-          }
-          return {
-            id: slot.media.id, name: slot.media.name, url: slot.media.url, type: slot.media.type,
-            duration: slot.duration || slot.media.duration || 10, slotType: slot.slot_type, orientation: 'portrait',
-            startDate: slot.media.start_date || slot.start_date || null,
-            endDate: slot.media.end_date || slot.end_date || null
-          };
-        });
+        .map(slot => ({
+          id: slot.media.id, name: slot.media.name, url: slot.media.url, type: slot.media.type,
+          duration: slot.duration || slot.media.duration || 10, slotType: slot.slot_type, orientation: 'portrait',
+          startDate: slot.media.start_date || slot.start_date || null,
+          endDate: slot.media.end_date || slot.end_date || null
+        }));
       console.log("[PLAYLIST] Loaded", items.length, "items from slots");
     }
 
-    // Validação (4 filtros)
+    // Validação (3 filtros)
     const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.aac', '.ogg', '.m4a', '.flac'];
     const validateMedia = (item) => {
       const now = new Date();
       if (item.startDate && now < new Date(item.startDate)) return false;
       if (item.endDate && now > new Date(item.endDate)) return false;
-      if (item.type === 'rss') return !!item.url;
       if (!item.url || item.url.length < 10 || (!item.url.startsWith('http://') && !item.url.startsWith('https://'))) return false;
       if (AUDIO_EXTENSIONS.some(ext => item.url.toLowerCase().includes(ext))) return false;
       return true;
@@ -293,7 +291,8 @@ function App() {
       });
     }
 
-    const FALLBACK = { id: 'fallback', name: 'Institucional', url: 'https://images.unsplash.com/photo-1557672172-298e090bd0f1?w=1920&h=1080&fit=crop', type: 'image', duration: 15, orientation: 'portrait', slotType: 'fallback' };
+    const FALLBACK_SVG = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920"><rect fill="#0f172a" width="1080" height="1920"/><text x="540" y="900" text-anchor="middle" fill="#475569" font-family="sans-serif" font-size="48" font-weight="bold">Aguardando conteúdo...</text><text x="540" y="970" text-anchor="middle" fill="#334155" font-family="sans-serif" font-size="28">Adicione mídias à playlist deste terminal</text></svg>`)}`;
+    const FALLBACK = { id: 'fallback', name: 'Aguardando Conteúdo', url: FALLBACK_SVG, type: 'image', duration: 30, orientation: 'portrait', slotType: 'fallback' };
     const finalItems = validatedItems.length > 0 ? validatedItems : [FALLBACK];
     if (validatedItems.length === 0 && items.length > 0) {
       remoteLog(terminalId, "WARN", "Fail-Safe Activated");

@@ -287,8 +287,9 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
                 {/* Barra de Ocupação da Grade (10 slots locais) */}
                 {(() => {
                     const activePlaylist = playlists.find(p => p.id === terminal.assigned_playlist_id);
-                    const localSlots = activePlaylist?.slots?.filter((s, i) => s && [2, 3, 4, 5, 6, 8, 9, 10, 11, 12].includes(i)) || [];
-                    const occupiedCount = localSlots.length;
+                    const LOCAL_INDICES = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12];
+                    const realSlots = activePlaylist?.playlist_slots || [];
+                    const occupiedCount = realSlots.filter(s => LOCAL_INDICES.includes(s.slot_index) && s.media_id).length;
                     const percentage = Math.round((occupiedCount / 10) * 100);
 
                     return (
@@ -298,12 +299,15 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
                                 <span className="text-[9px] font-bold text-indigo-600">{occupiedCount}/10 Slots</span>
                             </div>
                             <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden flex gap-0.5 p-[1px]">
-                                {Array.from({ length: 10 }).map((_, i) => (
-                                    <div
-                                        key={i}
-                                        className={`flex-1 rounded-full transition-all duration-500 ${i < occupiedCount ? 'bg-indigo-500' : 'bg-slate-300'}`}
-                                    />
-                                ))}
+                                {LOCAL_INDICES.map((slotIdx, i) => {
+                                    const isOccupied = realSlots.some(s => s.slot_index === slotIdx && s.media_id);
+                                    return (
+                                        <div
+                                            key={i}
+                                            className={`flex-1 rounded-full transition-all duration-500 ${isOccupied ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                                        />
+                                    );
+                                })}
                             </div>
                         </div>
                     );
@@ -514,10 +518,10 @@ const Players = () => {
                     setError(null);
                 }
 
-                // Carregar playlists
+                // Carregar playlists com slots reais
                 const { data: playlistsData, error: pError } = await supabase
                     .from('playlists')
-                    .select('*')
+                    .select('*, playlist_slots(slot_index, slot_type, media_id)')
                     .order('created_at', { ascending: false });
 
                 if (pError) console.error("Players: Erro ao carregar playlists:", pError);
@@ -769,7 +773,7 @@ const Players = () => {
                 'local',    // 4
                 'local',    // 5
                 'local',    // 6
-                'dynamic',  // 7
+                'wildcard', // 7
                 'local',    // 8
                 'local',    // 9
                 'local',    // 10
