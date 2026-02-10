@@ -67,6 +67,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
 
     // ============================================
+    // POWER MANAGER API (Hibernate/Wake)
+    // ============================================
+    enterPowerSave: (terminalData) => ipcRenderer.invoke('power-enter-sleep', terminalData),
+
+    // ============================================
     // RSS FEED API (CORS-free via main process)
     // ============================================
     fetchRss: (feedUrl) => ipcRenderer.invoke('fetch-rss', feedUrl),

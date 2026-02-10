@@ -32,6 +32,9 @@ const CacheManager = require('./cacheManager');
 const Migrator = require('./migrator');
 const CrashGuard = require('./crashGuard');
 
+// Power Manager (Hibernate/Wake/Display)
+const powerManager = require('./powerManager');
+
 let mainWindow = null;
 let cacheManager = null;
 let powerSaveId = null;
@@ -334,6 +337,24 @@ function setupIpcHandlers() {
         }
     });
 
+    // ============================================
+    // POWER MANAGER: Hibernate/Wake do terminal
+    // ============================================
+    ipcMain.handle('power-enter-sleep', async (_, terminalData) => {
+        if (!app.isPackaged) {
+            console.log('[PowerManager] Modo dev — hibernação simulada');
+            return { success: true, simulated: true };
+        }
+
+        // Desabilitar PowerSaveBlocker antes de hibernar
+        if (powerSaveId !== null && powerSaveBlocker.isStarted(powerSaveId)) {
+            powerSaveBlocker.stop(powerSaveId);
+            console.log('[PowerManager] PowerSaveBlocker desabilitado para hibernate');
+        }
+
+        return await powerManager.enterPowerSave(terminalData);
+    });
+
 }
 
 // ============================================
@@ -453,6 +474,16 @@ app.whenReady().then(async () => {
     // ============================================
     powerSaveId = powerSaveBlocker.start('prevent-display-sleep');
     console.log('[Electron] PowerSaveBlocker ativo:', powerSaveBlocker.isStarted(powerSaveId));
+
+    // ============================================
+    // POWER MANAGER: Setup no boot
+    // ============================================
+    if (app.isPackaged) {
+        powerManager.ensureHibernateEnabled();
+        powerManager.cancelScheduledWake();
+        powerManager.turnOnDisplay(); // Garantir display ligado após wake
+        console.log('[PowerManager] Boot cleanup completo');
+    }
 
     // ============================================
     // INICIALIZAR CACHE MANAGER (Offline-First)

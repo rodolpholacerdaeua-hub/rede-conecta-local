@@ -225,9 +225,13 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
 
         // Se a intenção é estar DESLIGADO
         if (shouldBeOff) {
-            return mode === 'off'
-                ? { label: 'FORÇADO OFF', class: 'bg-slate-800 text-white border-slate-900' }
-                : { label: 'AUTO: STANDBY', class: 'bg-amber-50 text-amber-700 border border-amber-200' };
+            if (mode === 'off') {
+                return { label: 'FORÇADO OFF', class: 'bg-slate-800 text-white border-slate-900' };
+            }
+            if (terminal.status === 'hibernating') {
+                return { label: 'HIBERNANDO 💤', class: 'bg-purple-100 text-purple-700 border border-purple-200' };
+            }
+            return { label: 'AUTO: STANDBY', class: 'bg-amber-50 text-amber-700 border border-amber-200' };
         }
 
         // Se a intenção é estar LIGADO, mas o hardware ainda não cantou presença

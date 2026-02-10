@@ -268,11 +268,11 @@ const Dashboard = () => {
                                                 return (
                                                     <div key={t.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 group hover:border-indigo-200 transition-all">
                                                         <div className="flex items-center gap-3">
-                                                            <div className={`w-2 h-2 rounded-full ${isOnline ? (t.status === 'standby' ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-slate-300'}`} />
+                                                            <div className={`w-2 h-2 rounded-full ${isOnline ? (t.status === 'standby' ? 'bg-amber-500' : t.status === 'hibernating' ? 'bg-purple-500' : 'bg-emerald-500') : 'bg-slate-300'}`} />
                                                             <span className="text-xs font-bold text-slate-700">{t.name}</span>
                                                         </div>
                                                         <span className="text-[9px] font-black uppercase text-slate-400">
-                                                            {isOnline ? (t.status === 'standby' ? 'Em Standby' : 'Transmitindo') : 'Offline'}
+                                                            {isOnline ? (t.status === 'hibernating' ? 'Hibernando' : t.status === 'standby' ? 'Em Standby' : 'Transmitindo') : 'Offline'}
                                                         </span>
                                                     </div>
                                                 );
