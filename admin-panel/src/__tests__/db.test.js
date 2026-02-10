@@ -1,8 +1,46 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock do supabase
-vi.mock('../supabase', () => {
-    const mockFrom = vi.fn(() => ({
+// Mock apenas o createClient do @supabase/supabase-js
+const mockFrom = vi.fn();
+const mockStorage = {
+    from: vi.fn(() => ({
+        getPublicUrl: vi.fn(() => ({ data: { publicUrl: 'https://test.com/file.png' } })),
+        upload: vi.fn().mockResolvedValue({ data: { path: 'test/file.png' }, error: null }),
+        remove: vi.fn().mockResolvedValue({ error: null }),
+    }))
+};
+
+vi.mock('@supabase/supabase-js', () => ({
+    createClient: vi.fn(() => ({
+        from: mockFrom,
+        storage: mockStorage,
+        auth: {
+            signInWithPassword: vi.fn(),
+            signUp: vi.fn(),
+            signOut: vi.fn(),
+            getUser: vi.fn(),
+            getSession: vi.fn(),
+            onAuthStateChange: vi.fn(),
+            resetPasswordForEmail: vi.fn(),
+            updateUser: vi.fn(),
+        },
+        channel: vi.fn(() => ({
+            on: vi.fn().mockReturnThis(),
+            subscribe: vi.fn().mockReturnThis(),
+        })),
+        removeChannel: vi.fn(),
+    })),
+}));
+
+// Import real functions (they use the mocked supabase internally)
+const {
+    fetchCollection, getDocument, createDocument, updateDocument,
+    deleteDocument, batchWrite, getPublicUrl, supabase
+} = await import('../supabase.js');
+
+// Helper to setup mock chain
+function setupMockChain(resolvedValue) {
+    const chain = {
         select: vi.fn().mockReturnThis(),
         insert: vi.fn().mockReturnThis(),
         update: vi.fn().mockReturnThis(),
@@ -16,64 +54,35 @@ vi.mock('../supabase', () => {
         in: vi.fn().mockReturnThis(),
         order: vi.fn().mockReturnThis(),
         limit: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: { id: '1', name: 'Test' }, error: null }),
-        then: vi.fn(),
-    }));
-
-    return {
-        supabase: {
-            from: mockFrom,
-            storage: { from: vi.fn(() => ({ getPublicUrl: vi.fn(() => ({ data: { publicUrl: 'https://test.com/file.png' } })) })) },
-        },
+        single: vi.fn().mockResolvedValue(resolvedValue),
     };
-});
-
-// Importar APÓS o mock
-const { fetchCollection, getDocument, createDocument, updateDocument, deleteDocument, batchWrite, getPublicUrl } = await import('../db.js');
-const { supabase } = await import('../supabase');
+    // Make the chain itself thenable for queries without .single()
+    chain.then = vi.fn((resolve) => resolve(resolvedValue));
+    mockFrom.mockReturnValue(chain);
+    return chain;
+}
 
 describe('COLLECTION_MAP', () => {
-    it('deve mapear proof_of_play para playback_logs', async () => {
-        supabase.from.mockReturnValue({
-            select: vi.fn().mockReturnThis(),
-            order: vi.fn().mockReturnThis(),
-            limit: vi.fn().mockReturnThis(),
-            then: vi.fn(cb => cb({ data: [], error: null })),
-        });
+    beforeEach(() => vi.clearAllMocks());
 
-        // O fetchCollection deve converter o nome da collection
-        // Este teste valida que o COLLECTION_MAP funciona
+    it('deve mapear proof_of_play para playback_logs', async () => {
+        setupMockChain({ data: [], error: null });
         await fetchCollection('proof_of_play').catch(() => { });
-        expect(supabase.from).toHaveBeenCalledWith('playback_logs');
+        expect(mockFrom).toHaveBeenCalledWith('playback_logs');
     });
 
     it('deve manter nomes iguais para tabelas sem alias', async () => {
-        supabase.from.mockReturnValue({
-            select: vi.fn().mockReturnThis(),
-            order: vi.fn().mockReturnThis(),
-            limit: vi.fn().mockReturnThis(),
-            then: vi.fn(cb => cb({ data: [], error: null })),
-        });
-
+        setupMockChain({ data: [], error: null });
         await fetchCollection('terminals').catch(() => { });
-        expect(supabase.from).toHaveBeenCalledWith('terminals');
+        expect(mockFrom).toHaveBeenCalledWith('terminals');
     });
 });
 
 describe('batchWrite', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-    });
+    beforeEach(() => vi.clearAllMocks());
 
     it('deve executar todas operações em paralelo e retornar resultados', async () => {
-        // Mock updateDocument e createDocument via supabase.from
-        supabase.from.mockReturnValue({
-            update: vi.fn().mockReturnThis(),
-            insert: vi.fn().mockReturnThis(),
-            select: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockReturnThis(),
-            single: vi.fn().mockResolvedValue({ data: { id: '1' }, error: null }),
-        });
+        setupMockChain({ data: { id: '1' }, error: null });
 
         const operations = [
             { type: 'update', collection: 'terminals', docId: '1', data: { name: 'T1' } },
@@ -85,12 +94,7 @@ describe('batchWrite', () => {
     });
 
     it('deve lançar erro com detalhes quando operações falham', async () => {
-        supabase.from.mockReturnValue({
-            update: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockReturnThis(),
-            select: vi.fn().mockReturnThis(),
-            single: vi.fn().mockResolvedValue({ data: null, error: { message: 'Not found' } }),
-        });
+        setupMockChain({ data: null, error: { message: 'Not found' } });
 
         const operations = [
             { type: 'update', collection: 'terminals', docId: 'bad-id', data: { name: 'fail' } },
@@ -100,10 +104,9 @@ describe('batchWrite', () => {
     });
 
     it('deve aceitar operações de delete', async () => {
-        supabase.from.mockReturnValue({
-            delete: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockResolvedValue({ error: null }),
-        });
+        const chain = setupMockChain({ error: null });
+        // For delete: from().delete().eq() should resolve
+        chain.eq.mockResolvedValue({ error: null });
 
         const operations = [
             { type: 'delete', collection: 'media', docId: '1' },
