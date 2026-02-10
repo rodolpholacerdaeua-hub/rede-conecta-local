@@ -25,10 +25,16 @@ jobs:
       - run: npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: List dist contents
+        run: Get-ChildItem -Recurse dist/ | Select-Object FullName, Length
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: player-windows/dist/*.exe
+          path: |
+            player-windows/dist/*.exe
+            player-windows/dist/*.yml
+            player-windows/dist/*.blockmap
+          if-no-files-found: error
 
   build-linux:
     name: Build Linux
@@ -49,12 +55,16 @@ jobs:
       - run: npx electron-builder --linux --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: List dist contents
+        run: ls -la dist/
       - uses: actions/upload-artifact@v4
         with:
           name: linux-installer
           path: |
             player-windows/dist/*.deb
             player-windows/dist/*.AppImage
+            player-windows/dist/*.yml
+          if-no-files-found: error
 
   release:
     name: Create Release
@@ -66,6 +76,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
+      - name: List downloaded artifacts
+        run: find artifacts/ -type f 2>/dev/null || ls -R artifacts/ || echo "No artifacts found"
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
