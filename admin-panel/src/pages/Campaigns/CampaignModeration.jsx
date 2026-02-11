@@ -297,6 +297,42 @@ const CampaignModeration = ({
                 console.log(`🌐 [SWAP] ${globalUpdated?.length || 0} slots globais atualizados`);
             }
 
+            // 4. Auto-cleanup: delete old media if not used by any other campaign
+            const oldMediaId = camp.v_media_id;
+            if (oldMediaId && oldMediaId !== newMediaId) {
+                try {
+                    // Check if old media is referenced by any other campaign
+                    const { data: otherCampaigns } = await supabase
+                        .from('campaigns')
+                        .select('id')
+                        .or(`v_media_id.eq.${oldMediaId},h_media_id.eq.${oldMediaId},pending_swap_media_id.eq.${oldMediaId}`)
+                        .neq('id', camp.id)
+                        .limit(1);
+
+                    if (!otherCampaigns || otherCampaigns.length === 0) {
+                        // Get storage path before deleting record
+                        const { data: oldMedia } = await supabase
+                            .from('media')
+                            .select('storage_path')
+                            .eq('id', oldMediaId)
+                            .single();
+
+                        if (oldMedia?.storage_path) {
+                            await supabase.storage.from('media').remove([oldMedia.storage_path]);
+                            console.log(`🗑️ [SWAP] Mídia antiga deletada do Storage: ${oldMedia.storage_path}`);
+                        }
+
+                        // Soft-delete from DB
+                        await supabase.from('media').delete().eq('id', oldMediaId);
+                        console.log(`🗑️ [SWAP] Registro de mídia antiga removido: ${oldMediaId}`);
+                    } else {
+                        console.log(`♻️ [SWAP] Mídia antiga ainda em uso por outra campanha, mantendo.`);
+                    }
+                } catch (cleanupErr) {
+                    console.warn('[SWAP] Erro na limpeza da mídia antiga (não-crítico):', cleanupErr);
+                }
+            }
+
             // Update local state
             setCampaigns(prev => prev.map(c =>
                 c.id === camp.id ? {
@@ -307,7 +343,7 @@ const CampaignModeration = ({
                 } : c
             ));
 
-            alert(`✅ Troca de mídia aprovada!\n\n${updatedSlots?.length || 0} slot(s) atualizado(s).\nA nova mídia já está no ar.`);
+            alert(`✅ Troca de mídia aprovada!\n\n${updatedSlots?.length || 0} slot(s) atualizado(s).\nA nova mídia já está no ar.\n🗑️ Mídia antiga removida automaticamente.`);
         } catch (err) {
             console.error('[SWAP] Erro:', err);
             alert(`Erro ao aprovar troca: ${err.message}`);

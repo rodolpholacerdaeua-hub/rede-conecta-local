@@ -347,8 +347,6 @@ function App() {
   useEffect(() => {
     if (!terminalData || !terminalId || !authReady) return;
 
-    let powerSaveTriggered = false;
-
     const pulse = async () => {
       const now = new Date();
       const mode = terminalData.power_mode || 'auto';
@@ -373,34 +371,6 @@ function App() {
 
       if (window.Android?.setStandbyMode) {
         try { window.Android.setStandbyMode(sb); } catch (e) { console.error('[STANDBY] Failed:', e); }
-      }
-
-      // Power Save: Hibernar PC + Desligar TV via HDMI (apenas Electron)
-      if (sb && window.electronAPI?.enterPowerSave && !powerSaveTriggered) {
-        powerSaveTriggered = true;
-        console.log('[POWER] Fora do horário — iniciando power save...');
-
-        // Atualizar heartbeat como "hibernating" antes de hibernar
-        await updateTerminalHeartbeat(terminalId, 'hibernating', CURRENT_VERSION);
-        remoteLog(terminalId, 'INFO', 'Power Save: hibernating', {
-          operating_start: terminalData.operating_start,
-          operating_end: terminalData.operating_end,
-          power_mode: mode
-        });
-
-        try {
-          const result = await window.electronAPI.enterPowerSave({
-            operating_start: terminalData.operating_start || '08:00',
-            operating_end: terminalData.operating_end || '22:00',
-            operating_days: terminalData.operating_days || [0, 1, 2, 3, 4, 5, 6]
-          });
-          console.log('[POWER] Power save result:', result);
-        } catch (err) {
-          console.error('[POWER] Power save failed:', err);
-          powerSaveTriggered = false; // Retry on next pulse
-        }
-      } else if (!sb) {
-        powerSaveTriggered = false; // Reset flag when back to operating hours
       }
 
       await updateTerminalHeartbeat(terminalId, sb ? 'standby' : 'online', CURRENT_VERSION);

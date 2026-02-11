@@ -5,6 +5,7 @@ import {
     Menu, Bell, Coins, CreditCard, Package, ChevronRight, X, BarChart3, UserCheck
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import ConnectaMascot from './ConnectaMascot';
 
 const SidebarItem = ({ icon: Icon, label, active, onClick }) => (
     <button
@@ -106,11 +107,10 @@ const Layout = () => {
                 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
                 flex flex-col border-r border-slate-800/50
             `}>
-                <div className="p-8">
-                    <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center font-black text-xl shadow-lg shadow-blue-600/40 transform -rotate-3 hover:rotate-0 transition-transform cursor-pointer"
-                            onClick={() => navigate('/')}>
-                            C
+                <div className="p-6 pb-4">
+                    <div className="flex items-center space-x-3 cursor-pointer group" onClick={() => navigate('/')}>
+                        <div className="transform group-hover:scale-110 transition-transform">
+                            <ConnectaMascot size={36} animate={true} />
                         </div>
                         <div className="flex flex-col">
                             <span className="text-xl font-black italic tracking-tighter leading-none Outfit">CONECTA</span>
@@ -136,7 +136,10 @@ const Layout = () => {
 
                 <div className="p-6 border-t border-slate-800/50">
                     <div className="bg-slate-800/30 rounded-2xl p-4 mb-4 border border-white/5">
-                        <p className="text-[10px] uppercase font-black text-slate-500 mb-2 tracking-widest">Estado da Conta</p>
+                        <div className="flex items-center gap-3 mb-2">
+                            <ConnectaMascot size={28} animate={false} />
+                            <p className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Estado da Conta</p>
+                        </div>
                         <div className="flex items-center justify-between">
                             <span className="text-sm font-bold text-slate-200 truncate">{userData?.displayName || userData?.name}</span>
                             <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase">

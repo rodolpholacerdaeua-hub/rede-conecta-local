@@ -14,12 +14,16 @@ import { useNavigate } from 'react-router-dom';
 import CheckoutModal from '../components/CheckoutModal';
 import ScreenAlertsPanel from '../components/ScreenAlertsPanel';
 
-const StatCard = ({ icon: Icon, label, value, color, subtext }) => (
-    <div className="bg-white rounded-3xl p-6 border border-slate-100 premium-shadow group hover:border-indigo-200 transition-all duration-300">
+const StatCard = ({ icon: Icon, label, value, color, subtext, onClick }) => (
+    <div
+        onClick={onClick}
+        className={`bg-white rounded-3xl p-6 border border-slate-100 premium-shadow group hover:border-indigo-200 transition-all duration-300 ${onClick ? 'cursor-pointer hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]' : ''}`}
+    >
         <div className="flex justify-between items-start mb-4">
-            <div className={`p-3 rounded-2xl ${color} text-white shadow-lg`}>
+            <div className={`p-3 rounded-2xl ${color} text-white shadow-lg group-hover:shadow-xl transition-shadow`}>
                 <Icon className="w-6 h-6" />
             </div>
+            {onClick && <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />}
         </div>
         <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
         <h3 className="text-3xl font-black text-slate-800 tracking-tight Outfit mb-2">{value}</h3>
@@ -145,26 +149,26 @@ const Dashboard = () => {
     const stats = useMemo(() => {
         if (isCliente) {
             return [
-                { icon: Play, label: 'Suas Campanhas', value: campaigns.length, color: 'bg-indigo-600', subtext: 'Criadas por você' },
-                { icon: BarChart3, label: 'Exibições (POP)', value: popCount.toLocaleString(), color: 'bg-blue-600', subtext: 'Total comprovado' },
-                { icon: Monitor, label: 'Telas Ativas', value: calculateUsedScreens(campaigns), color: 'bg-emerald-500', subtext: 'Ocupação de quota' },
-                { icon: Coins, label: 'Saldo Atual', value: userData?.tokens || 0, color: 'bg-amber-500', subtext: 'Créditos Disponíveis' },
+                { icon: Play, label: 'Suas Campanhas', value: campaigns.length, color: 'bg-indigo-600', subtext: 'Criadas por você', onClick: () => navigate('/redirect') },
+                { icon: BarChart3, label: 'Exibições (POP)', value: popCount.toLocaleString(), color: 'bg-blue-600', subtext: 'Total comprovado', onClick: () => navigate('/redirect') },
+                { icon: Monitor, label: 'Telas Ativas', value: calculateUsedScreens(campaigns), color: 'bg-emerald-500', subtext: 'Ocupação de quota', onClick: () => navigate('/redirect') },
+                { icon: Coins, label: 'Saldo Atual', value: userData?.tokens || 0, color: 'bg-amber-500', subtext: 'Créditos Disponíveis', onClick: () => setIsCheckoutOpen(true) },
             ];
         } else {
             return [
-                { icon: Monitor, label: 'Parque Total', value: terminals.length, color: 'bg-indigo-600', subtext: 'Terminais registrados' },
+                { icon: Monitor, label: 'Parque Total', value: terminals.length, color: 'bg-indigo-600', subtext: 'Terminais registrados', onClick: () => navigate('/admin/players') },
                 {
                     icon: CheckCircle, label: 'Online Agora', value: terminals.filter(t => {
                         const lastSeen = t.lastSeen;
                         const lastSeenMs = lastSeen?.seconds ? lastSeen.seconds * 1000 : new Date(lastSeen).getTime();
                         return Date.now() - lastSeenMs < 60000;
-                    }).length, color: 'bg-emerald-500', subtext: 'Ativos no sistema'
+                    }).length, color: 'bg-emerald-500', subtext: 'Ativos no sistema', onClick: () => navigate('/admin/players')
                 },
-                { icon: Play, label: 'Campanhas', value: campaigns.length, color: 'bg-blue-600', subtext: 'Total no MaaS' },
-                { icon: AlertTriangle, label: 'Pendentes', value: campaigns.filter(c => !c.is_active).length, color: 'bg-rose-500', subtext: 'Requerem validação' },
+                { icon: Play, label: 'Campanhas', value: campaigns.length, color: 'bg-blue-600', subtext: 'Total no MaaS', onClick: () => navigate('/admin/campaigns') },
+                { icon: AlertTriangle, label: 'Pendentes', value: campaigns.filter(c => !c.is_active).length, color: 'bg-rose-500', subtext: 'Requerem validação', onClick: () => navigate('/admin/campaigns') },
             ];
         }
-    }, [campaigns, terminals, isCliente, userData]);
+    }, [campaigns, terminals, isCliente, userData, navigate]);
 
     if (loading) {
         return (

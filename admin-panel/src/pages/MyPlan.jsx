@@ -15,6 +15,7 @@ import {
     calculateUsedScreens,
     isAdmin
 } from '../utils/planHelpers';
+import CheckoutModal from '../components/CheckoutModal';
 
 const PlanCard = ({ plan, currentPlan, onSelect }) => {
     const isCurrent = currentPlan === plan.id;
@@ -94,6 +95,8 @@ const MyPlan = () => {
     const { userData, currentUser } = useAuth();
     const [campaigns, setCampaigns] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [showCheckout, setShowCheckout] = useState(false);
+    const [selectedPlan, setSelectedPlan] = useState(null);
 
     useEffect(() => {
         if (!currentUser) return;
@@ -140,7 +143,13 @@ const MyPlan = () => {
     const usagePercentage = totalScreens === Infinity ? 0 : (usedScreens / totalScreens) * 100;
 
     const handleSelectPlan = (planId) => {
-        alert(`Iniciando Checkout seguro para o plano ${PLANS[planId].displayName}...`);
+        setSelectedPlan(planId);
+        setShowCheckout(true);
+    };
+
+    const handleCheckoutClose = () => {
+        setShowCheckout(false);
+        setSelectedPlan(null);
     };
 
     return (
@@ -272,6 +281,12 @@ const MyPlan = () => {
                     </div>
                 </div>
             </div>
+            <CheckoutModal
+                isOpen={showCheckout}
+                onClose={handleCheckoutClose}
+                userData={userData}
+                initialPlanId={selectedPlan}
+            />
         </div>
     );
 };

@@ -4,17 +4,36 @@
 
 // Definição dos planos disponíveis
 export const PLANS = {
+    weekly: {
+        id: 'weekly',
+        name: 'Semanal',
+        displayName: 'Plano Semanal',
+        quota: 1,
+        price: 69.00,
+        credits: 69,
+        validityDays: 7,
+        canSwapMedia: false,
+        features: [
+            '1 vaga em totem à sua escolha',
+            'Exibição contínua por 7 dias',
+            'Vídeo de até 15 segundos',
+            'Relatório de exibições (POP)',
+            'Aprovação em até 24h'
+        ]
+    },
     start: {
         id: 'start',
         name: 'Start',
         displayName: 'Plano Start',
         quota: 1,
-        price: 99.90,
-        validityDays: 30, // Período de veiculação das campanhas
+        price: 150.00,
+        validityDays: 30,
+        canSwapMedia: true,
         features: [
             '1 tela de exibição ativa',
             '1 upload de vídeo/mês (renovável)',
             'Campanhas com 30 dias de veiculação',
+            '🔄 Troca de mídia por R$25 (ilimitado)',
             'Relatórios Proof-of-Play (POP)',
             'Monitoramento Operacional Live'
         ]
@@ -25,11 +44,13 @@ export const PLANS = {
         displayName: 'Plano Business',
         quota: 3,
         price: 249.90,
-        validityDays: 60, // Período de veiculação das campanhas
+        validityDays: 60,
+        canSwapMedia: true,
         features: [
             '3 telas de exibição',
             'Upload de mídias ilimitado',
             'Campanhas com 60 dias de veiculação',
+            '🔄 Troca de mídia por R$25 (ilimitado)',
             'Suporte prioritário',
             'Relatórios avançados',
             'Agendamento de campanhas'
@@ -41,11 +62,13 @@ export const PLANS = {
         displayName: 'Plano Premium',
         quota: 5,
         price: 399.90,
-        validityDays: 90, // Período de veiculação das campanhas
+        validityDays: 90,
+        canSwapMedia: true,
         features: [
             '5 telas de exibição',
             'Upload de mídias ilimitado',
             'Campanhas com 90 dias de veiculação',
+            '🔄 Troca de mídia por R$25 (ilimitado)',
             'Suporte 24/7',
             'Relatórios completos',
             'Agendamento de campanhas',
@@ -58,11 +81,13 @@ export const PLANS = {
         displayName: 'Plano Enterprise',
         quota: 10,
         price: 699.90,
-        validityDays: 180, // Período de veiculação das campanhas
+        validityDays: 180,
+        canSwapMedia: true,
         features: [
             '10 telas de exibição',
             'Upload de mídias ilimitado',
             'Campanhas com 180 dias de veiculação',
+            '🔄 Troca de mídia por R$25 (ilimitado)',
             'Suporte dedicado 24/7',
             'Relatórios personalizados',
             'Agendamento avançado',
@@ -77,7 +102,8 @@ export const PLANS = {
         displayName: 'Rede Ilimitada',
         quota: Infinity,
         price: 0,
-        validityDays: 365, // Admin/unlimited = 1 ano
+        validityDays: 365,
+        canSwapMedia: true,
         features: [
             'Telas ilimitadas',
             'Campanhas com 365 dias de veiculação',
@@ -375,7 +401,7 @@ export function extendPlan(currentExpiration, days = 30) {
  * @returns {string} 'upgrade', 'downgrade' ou 'same'
  */
 export function comparePlans(currentPlan, newPlan) {
-    const planOrder = ['start', 'business', 'premium', 'enterprise', 'unlimited'];
+    const planOrder = ['weekly', 'start', 'business', 'premium', 'enterprise', 'unlimited'];
     const currentIndex = planOrder.indexOf(currentPlan);
     const newIndex = planOrder.indexOf(newPlan);
 

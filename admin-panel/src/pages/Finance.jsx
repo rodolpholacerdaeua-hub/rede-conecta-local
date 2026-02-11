@@ -5,6 +5,7 @@ import {
     XCircle, Clock, Sparkles, Coins, ShoppingCart, History, ArrowUpRight, ArrowDownLeft, Monitor
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import CheckoutModal from '../components/CheckoutModal';
 
 const FinanceCard = ({ title, value, icon: Icon, color, subtitle, onClick }) => (
     <div
@@ -32,6 +33,7 @@ const Finance = () => {
     const [campaigns, setCampaigns] = useState([]);
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [showCheckout, setShowCheckout] = useState(false);
 
     const isCliente = userData?.role === 'cliente';
     const queryParams = new URLSearchParams(window.location.search);
@@ -83,26 +85,8 @@ const Finance = () => {
         return () => { isMounted = false; };
     }, [currentUser?.id, userData?.role, isCliente]);
 
-    const handleBuyTokens = async (amount) => {
-        try {
-            setLoading(true);
-            // TODO: Integrar com Edge Function para criar preferência de pagamento
-            // Por enquanto, apenas simulação
-            alert(`Redirecionando para pagamento de ${amount} créditos...`);
-            // Simular adição de tokens para teste
-            const { error } = await supabase
-                .from('users')
-                .update({ tokens: (userData?.tokens || 0) + amount })
-                .eq('id', currentUser.id);
-
-            if (error) throw error;
-            alert(`${amount} créditos adicionados com sucesso!`);
-        } catch (e) {
-            console.error("Payment Error:", e);
-            alert(`Falha ao processar: ${e.message}`);
-        } finally {
-            setLoading(false);
-        }
+    const handleBuyTokens = () => {
+        setShowCheckout(true);
     };
 
     const totalRevenue = transactions.filter(t => t.type === 'debit').reduce((acc, t) => acc + (t.amount || 0), 0);
@@ -142,7 +126,7 @@ const Finance = () => {
                                 <Coins className="w-10 h-10 text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.5)]" />
                             </div>
                             <button
-                                onClick={() => handleBuyTokens(100)}
+                                onClick={handleBuyTokens}
                                 className="w-full bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-sm Outfit uppercase tracking-widest hover:bg-slate-100 transition-all transform active:scale-95 flex items-center justify-center space-x-2 shadow-xl shadow-white/5"
                             >
                                 <ShoppingCart className="w-4 h-4" />
@@ -276,6 +260,12 @@ const Finance = () => {
                     </div>
                 </div>
             </div>
+
+            <CheckoutModal
+                isOpen={showCheckout}
+                onClose={() => setShowCheckout(false)}
+                userData={userData}
+            />
         </div>
     );
 };

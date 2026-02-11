@@ -13,154 +13,113 @@ import PasswordConfirmModal from '../components/PasswordConfirmModal';
 // Componente isolado para o Mini-Player
 const MiniPlayerPreview = ({ terminal, activePlaylist, onClose }) => {
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [currentUrl, setCurrentUrl] = useState(null);
-    const [mediaType, setMediaType] = useState('image');
+    const [mediaItems, setMediaItems] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // Preparar itens da playlist, FILTRANDO incompatíveis
-    const items = React.useMemo(() => {
-        if (!activePlaylist) return [];
-        const rawItems = [...(activePlaylist.localItems || []), ...(activePlaylist.globalItems || [])];
-        // Sistema vertical-only: sem filtro de orientação
-        return rawItems.sort((a, b) => (a.sortId || 0) - (b.sortId || 0));
-    }, [activePlaylist]);
-
-    // Efeito de Rotação e Busca de URL
+    // Carregar mídias dos slots da playlist
     useEffect(() => {
-        if (items.length === 0) {
+        if (!activePlaylist?.playlist_slots) {
             setLoading(false);
             return;
         }
 
         let isMounted = true;
-        const currentItem = items[currentIndex];
-
-        const fetchMedia = async () => {
+        const loadMedia = async () => {
             setLoading(true);
             try {
-                let url = currentItem.url;
-                let type = currentItem.mediaType || 'image';
+                const occupiedSlots = activePlaylist.playlist_slots
+                    .filter(s => s.media_id)
+                    .sort((a, b) => a.slot_index - b.slot_index);
 
-                // Se não tem URL direta (ex: campanha), busca no banco via Supabase
-                if (!url) {
-                    if (currentItem.type === 'campaign') {
-                        const campData = await getDocument('campaigns', currentItem.id);
-                        if (campData) {
-                            const mediaId = campData.vMediaId || campData.hMediaId;
-                            if (mediaId) {
-                                const mediaData = await getDocument('media', mediaId);
-                                if (mediaData) {
-                                    url = mediaData.url;
-                                    type = mediaData.type;
-                                }
-                            }
-                        }
-                    } else if (currentItem.type === 'media') {
-                        // Fallback para mídia direta se necessário
-                        const mediaData = await getDocument('media', currentItem.id);
-                        if (mediaData) {
-                            url = mediaData.url;
-                            type = mediaData.type;
-                        }
-                    }
+                if (occupiedSlots.length === 0) {
+                    if (isMounted) setLoading(false);
+                    return;
                 }
 
-                if (isMounted) {
-                    if (!url) {
-                        console.warn(`[SIMULADOR] Pular item: Mídia não encontrada para ${currentItem.name}`);
-                        // Se não achou url, força pular para o próximo imediatamente
-                        setCurrentIndex((prev) => (prev + 1) % items.length);
-                        setLoading(false);
-                        return;
-                    }
+                const mediaIds = occupiedSlots.map(s => s.media_id);
+                const { data: mediaData, error } = await supabase
+                    .from('media')
+                    .select('id, url, type, name, duration')
+                    .in('id', mediaIds);
 
-                    setCurrentUrl(url);
-                    setMediaType(type);
+                if (error) throw error;
+
+                const items = occupiedSlots.map(slot => {
+                    const media = mediaData?.find(m => m.id === slot.media_id);
+                    return media ? {
+                        id: media.id,
+                        url: media.url,
+                        type: media.type || 'image',
+                        name: media.name || `Slot ${slot.slot_index}`,
+                        duration: media.duration || 10,
+                        slotIndex: slot.slot_index
+                    } : null;
+                }).filter(Boolean);
+
+                if (isMounted) {
+                    setMediaItems(items);
+                    setCurrentIndex(0);
                     setLoading(false);
                 }
             } catch (err) {
-                console.error("Erro no simulador:", err);
-                if (isMounted) {
-                    // Em caso de erro, tenta pular
-                    setCurrentIndex((prev) => (prev + 1) % items.length);
-                    setLoading(false);
-                }
+                console.error('[SIMULADOR] Erro ao carregar mídias:', err);
+                if (isMounted) setLoading(false);
             }
         };
 
-        fetchMedia();
+        loadMedia();
+        return () => { isMounted = false; };
+    }, [activePlaylist]);
 
-        const duration = (currentItem.duration || 10) * 1000;
+    // Rotação automática
+    useEffect(() => {
+        if (mediaItems.length === 0) return;
+        const current = mediaItems[currentIndex];
+        const duration = (current?.duration || 10) * 1000;
         const timer = setTimeout(() => {
-            if (isMounted) {
-                setCurrentIndex((prev) => (prev + 1) % items.length);
-            }
+            setCurrentIndex(prev => (prev + 1) % mediaItems.length);
         }, duration);
+        return () => clearTimeout(timer);
+    }, [currentIndex, mediaItems]);
 
-        return () => {
-            isMounted = false;
-            clearTimeout(timer);
-        };
-    }, [currentIndex, items]);
-
-    if (!activePlaylist || items.length === 0) {
+    if (!activePlaylist || mediaItems.length === 0) {
         return (
-            <div className="mb-4 bg-slate-900 rounded-xl overflow-hidden border-2 border-indigo-500 shadow-lg p-3 aspect-video flex flex-col items-center justify-center text-slate-500 gap-2 relative">
+            <div className="mb-4 bg-slate-900 rounded-xl overflow-hidden border-2 border-indigo-500 shadow-lg p-3 aspect-[9/16] flex flex-col items-center justify-center text-slate-500 gap-2 relative">
                 <Layers className="w-8 h-8 opacity-20" />
-                <p className="text-[10px] font-bold">Playlist Vazia</p>
-                <button
-                    onClick={onClose}
-                    className="absolute top-2 right-2 text-slate-500 hover:text-white"
-                >
+                <p className="text-[10px] font-bold">{loading ? 'Carregando...' : 'Grade Vazia'}</p>
+                <button onClick={onClose} className="absolute top-2 right-2 text-slate-500 hover:text-white">
                     <Power className="w-4 h-4" />
                 </button>
             </div>
         );
     }
 
-    const currentItem = items[currentIndex];
-
-    // Sistema vertical-only: sempre aspecto vertical
-    const aspectRatioClass = 'aspect-[9/16]';
+    const current = mediaItems[currentIndex];
 
     return (
-        <div className={`mb-4 bg-slate-900 rounded-xl overflow-hidden border-2 border-indigo-500 shadow-2xl shadow-indigo-500/20 ${aspectRatioClass} relative group flex flex-col transition-all duration-500`}>
+        <div className="mb-4 bg-slate-900 rounded-xl overflow-hidden border-2 border-indigo-500 shadow-2xl shadow-indigo-500/20 aspect-[9/16] relative group flex flex-col transition-all duration-500">
             <div className="relative w-full h-full bg-black flex-1 flex flex-col overflow-hidden">
-                {loading ? (
-                    <div className="flex-1 flex flex-col items-center justify-center gap-2">
-                        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                        <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-widest animate-pulse">Carregando...</p>
-                    </div>
-                ) : currentUrl ? (
-                    <>
-                        {mediaType === 'video' ? (
-                            <video src={currentUrl} className="w-full h-full object-cover" autoPlay muted playsInline />
-                        ) : (
-                            <img src={currentUrl} className="w-full h-full object-cover animate-in fade-in duration-500" alt="Preview" />
-                        )}
-
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-6 pointer-events-none">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                    <span className="text-[10px] items-center font-bold text-white uppercase tracking-wider truncate max-w-[150px]">
-                                        {currentItem.name || (currentItem.type === 'campaign' ? 'Campanha' : 'Conteúdo')}
-                                    </span>
-                                </div>
-                                <span className="text-[9px] font-mono text-slate-400 bg-black/50 px-1.5 py-0.5 rounded">
-                                    {currentIndex + 1} / {items.length}
-                                </span>
-                            </div>
-                        </div>
-                    </>
+                {current.type === 'video' ? (
+                    <video key={current.id} src={current.url} className="w-full h-full object-cover" autoPlay muted playsInline />
                 ) : (
-                    <div className="flex-1 flex items-center justify-center">
-                        <p className="text-[10px] text-red-400 font-bold">Erro ao carregar mídia</p>
-                    </div>
+                    <img key={current.id} src={current.url} className="w-full h-full object-cover animate-in fade-in duration-500" alt={current.name} />
                 )}
+
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-6 pointer-events-none">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span className="text-[10px] font-bold text-white uppercase tracking-wider truncate max-w-[150px]">
+                                {current.name}
+                            </span>
+                        </div>
+                        <span className="text-[9px] font-mono text-slate-400 bg-black/50 px-1.5 py-0.5 rounded">
+                            {currentIndex + 1} / {mediaItems.length}
+                        </span>
+                    </div>
+                </div>
             </div>
 
-            {/* Botão Fechar Flutuante */}
             <button
                 onClick={onClose}
                 className="absolute top-2 right-2 bg-black/60 hover:bg-red-600 text-white p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100 z-10 backdrop-blur-sm"
@@ -179,7 +138,13 @@ const MiniPlayerPreview = ({ terminal, activePlaylist, onClose }) => {
 
 const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, onUpdateField, onDelete }) => {
     const [now, setNow] = useState(new Date());
-    const [localLastSync, setLocalLastSync] = useState(terminal.last_seen ? Date.now() : 0);
+    const [localLastSync, setLocalLastSync] = useState(() => {
+        if (!terminal.last_seen) return 0;
+        const lastSeenMs = new Date(terminal.last_seen).getTime();
+        if (isNaN(lastSeenMs)) return 0;
+        // Only mark as online if last_seen is within the 65s threshold
+        return (Date.now() - lastSeenMs < 65000) ? Date.now() : 0;
+    });
     const prevLastSeen = React.useRef(terminal.last_seen);
 
     useEffect(() => {
@@ -189,16 +154,23 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
 
     // Sync Reativo: Quando o heartbeat chega do servidor, marcamos o momento exato LOCAL da recepção
     useEffect(() => {
-        const currentMs = terminal.last_seen?.toMillis ? terminal.last_seen.toMillis() : (terminal.last_seen?.seconds ? terminal.last_seen.seconds * 1000 : (terminal.last_seen ? new Date(terminal.last_seen).getTime() : 0));
-        const previousMs = prevLastSeen.current?.toMillis ? prevLastSeen.current.toMillis() : (prevLastSeen.current?.seconds ? prevLastSeen.current.seconds * 1000 : (prevLastSeen.current ? new Date(prevLastSeen.current).getTime() : 0));
+        const parseMs = (ts) => {
+            if (!ts) return 0;
+            if (ts.toMillis) return ts.toMillis();
+            if (ts.seconds) return ts.seconds * 1000;
+            const ms = new Date(ts).getTime();
+            return isNaN(ms) ? 0 : ms;
+        };
 
-        // Se o timestamp mudou OU o contador de batimentos subiu, então está 100% online
-        if (currentMs !== previousMs || terminal.heartbeat_counter !== prevLastSeen.current?.heartbeat_counter) {
+        const currentMs = parseMs(terminal.last_seen);
+        const previousMs = parseMs(prevLastSeen.current);
+
+        if (currentMs > 0 && currentMs !== previousMs) {
             console.log(`📶 [PULSO] Sinal de "${terminal.name}" detectado.`);
             setLocalLastSync(Date.now());
-            prevLastSeen.current = terminal;
+            prevLastSeen.current = terminal.last_seen;
         }
-    }, [terminal.last_seen, terminal.heartbeat_counter, terminal.name]);
+    }, [terminal.last_seen, terminal.name]);
 
     const isOnline = localLastSync > 0 && (Date.now() - localLastSync < 65000);
 
@@ -227,9 +199,6 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
         if (shouldBeOff) {
             if (mode === 'off') {
                 return { label: 'FORÇADO OFF', class: 'bg-slate-800 text-white border-slate-900' };
-            }
-            if (terminal.status === 'hibernating') {
-                return { label: 'HIBERNANDO 💤', class: 'bg-purple-100 text-purple-700 border border-purple-200' };
             }
             return { label: 'AUTO: STANDBY', class: 'bg-amber-50 text-amber-700 border border-amber-200' };
         }
@@ -404,8 +373,7 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
                         </div>
                         <button
                             onClick={() => {
-                                // Redirecionar para editor de playlist ou abrir modal
-                                window.location.hash = `#/playlists?id=${terminal.assigned_playlist_id}`;
+                                window.location.href = `/admin/playlists?id=${terminal.assigned_playlist_id}`;
                             }}
                             className="bg-white border border-slate-200 text-indigo-600 hover:bg-indigo-50 p-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition-all shadow-sm"
                         >
@@ -413,13 +381,7 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
                         </button>
                     </div>
 
-                    <div className="border-t border-slate-100 pt-3 flex justify-between items-center">
-                        <div className="flex items-center space-x-2 min-w-0 flex-1 mr-2">
-                            <Play className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                            <span className="text-[11px] text-slate-500 font-bold truncate">
-                                {terminal.currentMedia || 'Aguardando...'}
-                            </span>
-                        </div>
+                    <div className="border-t border-slate-100 pt-3 flex justify-end items-center gap-2">
                         <div className="flex items-center bg-slate-100 p-1 rounded-xl">
                             <button
                                 onClick={() => onUpdateField(terminal.id, 'powerMode', 'on')}

@@ -7,7 +7,7 @@ import {
     CheckCircle, XCircle, Clock, Edit2, Trash2,
     ArrowUpRight, RefreshCw
 } from 'lucide-react';
-import { getPlanValidityDays } from '../../utils/planHelpers';
+import { getPlanValidityDays, PLANS } from '../../utils/planHelpers';
 
 // Calcula a data de expiração baseada na data de aprovação
 function formatExpirationDate(createdAt) {
@@ -188,15 +188,28 @@ const CampaignList = ({
                                     {/* Controle */}
                                     <td className="px-8 py-6 text-right">
                                         <div className="flex items-center justify-end space-x-2">
-                                            {/* Swap button: only for approved monthly campaigns owned by cliente */}
+                                            {/* Swap button: only for approved campaigns owned by cliente with canSwapMedia plan */}
                                             {userData?.role === 'cliente' && c.moderation_status === 'approved' && !c.pending_swap_media_id && (
-                                                <button
-                                                    onClick={() => onSwap && onSwap(c)}
-                                                    className="p-2.5 bg-cyan-50 text-cyan-600 border border-cyan-100 rounded-xl hover:bg-cyan-100 transition-all active:scale-90"
-                                                    title="Trocar Mídia (R$19)"
-                                                >
-                                                    <RefreshCw className="w-5 h-5" />
-                                                </button>
+                                                (() => {
+                                                    const plan = userData?.plan || 'start';
+                                                    const canSwap = PLANS[plan]?.canSwapMedia;
+                                                    return canSwap ? (
+                                                        <button
+                                                            onClick={() => onSwap && onSwap(c)}
+                                                            className="p-2.5 bg-cyan-50 text-cyan-600 border border-cyan-100 rounded-xl hover:bg-cyan-100 transition-all active:scale-90"
+                                                            title="Trocar Mídia (R$25)"
+                                                        >
+                                                            <RefreshCw className="w-5 h-5" />
+                                                        </button>
+                                                    ) : (
+                                                        <span
+                                                            className="p-2.5 bg-slate-50 text-slate-300 border border-slate-100 rounded-xl cursor-not-allowed inline-flex"
+                                                            title="Troca de mídia disponível a partir do Plano Start"
+                                                        >
+                                                            <RefreshCw className="w-5 h-5" />
+                                                        </span>
+                                                    );
+                                                })()
                                             )}
                                             {/* Pending swap badge */}
                                             {c.pending_swap_media_id && (

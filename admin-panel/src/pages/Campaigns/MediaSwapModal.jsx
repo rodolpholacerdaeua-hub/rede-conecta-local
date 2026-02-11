@@ -1,15 +1,16 @@
 /**
  * MediaSwapModal — Modal for advertisers to request a media swap
  * 
- * Shows current media, lets user pick new media, confirms R$19 charge,
- * and submits the swap request for admin moderation.
+ * Includes inline upload — no need to visit Library first.
+ * Validates vertical format, ≤16s duration, uploads to Storage,
+ * deducts R$25 swap fee, and submits for admin moderation.
  */
 import React, { useState } from 'react';
-import { RefreshCw, X, AlertTriangle, CheckCircle, Coins } from 'lucide-react';
+import { RefreshCw, X, AlertTriangle, CheckCircle, Coins, Sparkles } from 'lucide-react';
 import { supabase } from '../../supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { SWAP_FEE } from './campaignUtils';
-import MediaPicker from './MediaPicker';
+import InlineUploader from './InlineUploader';
 
 const MediaSwapModal = ({ campaign, mediaFiles, onClose, onSwapSubmitted }) => {
     const { currentUser, userData } = useAuth();
@@ -23,7 +24,7 @@ const MediaSwapModal = ({ campaign, mediaFiles, onClose, onSwapSubmitted }) => {
     const canAfford = userCredits >= SWAP_FEE;
 
     const handleSubmitSwap = async () => {
-        if (!newMediaId) return alert('Selecione a nova mídia!');
+        if (!newMediaId) return alert('Envie a nova mídia primeiro!');
         if (newMediaId === campaign.v_media_id) return alert('Selecione uma mídia diferente da atual!');
         if (!canAfford) return alert(`Créditos insuficientes! Você tem ${userCredits}, precisa de ${SWAP_FEE}.`);
 
@@ -87,9 +88,13 @@ const MediaSwapModal = ({ campaign, mediaFiles, onClose, onSwapSubmitted }) => {
                             <p className="text-sm text-white/80 font-bold">{campaign.name}</p>
                         </div>
                     </div>
+                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 rounded-full text-[10px] font-black uppercase tracking-widest">
+                        <Sparkles className="w-3 h-3" />
+                        Condição Especial — Plano Start
+                    </div>
                 </div>
 
-                <div className="p-6 space-y-6">
+                <div className="p-6 space-y-5">
                     {/* Current media */}
                     <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Mídia Atual (em exibição)</p>
@@ -108,12 +113,11 @@ const MediaSwapModal = ({ campaign, mediaFiles, onClose, onSwapSubmitted }) => {
                         </div>
                     </div>
 
-                    {/* New media picker */}
-                    <MediaPicker
+                    {/* Inline Upload (replaces MediaPicker) */}
+                    <InlineUploader
                         label="Nova Mídia"
-                        selectedId={newMediaId}
-                        onSelect={setNewMediaId}
-                        mediaFiles={mediaFiles.filter(m => m.id !== campaign.v_media_id)}
+                        onUploadComplete={(mediaId) => setNewMediaId(mediaId)}
+                        compact
                     />
 
                     {/* Cost info */}
@@ -164,8 +168,8 @@ const MediaSwapModal = ({ campaign, mediaFiles, onClose, onSwapSubmitted }) => {
                             onClick={handleSubmitSwap}
                             disabled={!newMediaId || !canAfford || isSubmitting}
                             className={`flex-1 px-6 py-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 ${!newMediaId || !canAfford || isSubmitting
-                                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                    : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/30 active:scale-95'
+                                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/30 active:scale-95'
                                 }`}
                         >
                             {isSubmitting ? (

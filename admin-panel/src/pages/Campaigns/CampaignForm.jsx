@@ -14,7 +14,7 @@ import {
     AI_CREATION_COST, SLOT_PRICES, EDIT_FEE,
     calculateCampaignCost
 } from './campaignUtils';
-import MediaPicker from './MediaPicker';
+import InlineUploader from './InlineUploader';
 import TerminalPicker from './TerminalPicker';
 
 const CampaignForm = ({
@@ -480,21 +480,9 @@ const CampaignForm = ({
                             </div>
                         ) : (
                             <div className="space-y-6">
-                                <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex items-center gap-3">
-                                    <div className="w-10 h-16 bg-indigo-200 rounded-lg flex items-center justify-center text-[8px] font-black text-indigo-600">
-                                        9:16
-                                    </div>
-                                    <div>
-                                        <span className="text-xs font-black text-indigo-900 Outfit block">Formato Vertical</span>
-                                        <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-tighter">Todas as mídias são 9:16</span>
-                                    </div>
-                                </div>
-
-                                <MediaPicker
+                                <InlineUploader
                                     label="Mídia Vertical 9:16"
-                                    selectedId={vMediaId}
-                                    onSelect={setVMediaId}
-                                    mediaFiles={mediaFiles}
+                                    onUploadComplete={(mediaId) => setVMediaId(mediaId)}
                                 />
                             </div>
                         )}

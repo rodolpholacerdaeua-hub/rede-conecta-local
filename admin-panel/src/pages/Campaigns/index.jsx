@@ -5,11 +5,12 @@
  * Replaces the original monolithic Campaigns.jsx (1544 lines → ~170 lines).
  */
 import React from 'react';
-import { Layers, Sparkles, Plus } from 'lucide-react';
+import { Layers, Sparkles, Plus, RefreshCw, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../supabase';
 import { updateDocument, createDocument, deleteDocument } from '../../db';
-import { canCreateCampaign } from '../../utils/planHelpers';
+import { canCreateCampaign, PLANS } from '../../utils/planHelpers';
+import { SWAP_FEE } from './campaignUtils';
 
 import { useCampaignData } from './useCampaignData';
 import CampaignForm from './CampaignForm';
@@ -135,6 +136,52 @@ const Campaigns = () => {
                     )}
                 </div>
             </div>
+
+            {/* Media Swap Banner — visível apenas para clientes Start+ com campanhas aprovadas */}
+            {userData?.role === 'cliente' && PLANS[userData?.plan]?.canSwapMedia && data.campaigns.some(c => c.moderation_status === 'approved') && (
+                <div className="bg-gradient-to-r from-cyan-50 to-blue-50 rounded-2xl border-2 border-cyan-200 p-6 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-100/40 rounded-full -translate-y-1/2 translate-x-1/2" />
+                    <div className="relative z-10">
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="p-2 bg-cyan-500 rounded-xl text-white">
+                                <RefreshCw className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-black text-cyan-800 Outfit uppercase tracking-wider">Quer trocar seu vídeo?</h3>
+                                <span className="text-[10px] font-black uppercase tracking-widest text-cyan-500">Condição Especial • Plano Start</span>
+                            </div>
+                        </div>
+                        <p className="text-sm text-slate-600 font-bold mb-4 leading-relaxed">
+                            Você pode trocar a mídia da sua campanha a qualquer momento durante o período ativo. <strong className="text-cyan-700">Cada troca custa R${SWAP_FEE}.</strong>
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-cyan-100 flex-1">
+                                <div className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-cyan-600 font-black text-sm">1</div>
+                                <div>
+                                    <p className="text-xs font-black text-slate-700">Clique no botão 🔄</p>
+                                    <p className="text-[10px] text-slate-400 font-bold">Na sua campanha aprovada abaixo</p>
+                                </div>
+                            </div>
+                            <ArrowRight className="w-5 h-5 text-cyan-300 self-center hidden sm:block flex-shrink-0" />
+                            <div className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-cyan-100 flex-1">
+                                <div className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-cyan-600 font-black text-sm">2</div>
+                                <div>
+                                    <p className="text-xs font-black text-slate-700">Envie o novo vídeo</p>
+                                    <p className="text-[10px] text-slate-400 font-bold">Arraste ou selecione direto no modal</p>
+                                </div>
+                            </div>
+                            <ArrowRight className="w-5 h-5 text-cyan-300 self-center hidden sm:block flex-shrink-0" />
+                            <div className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 border border-cyan-100 flex-1">
+                                <div className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-cyan-600 font-black text-sm">3</div>
+                                <div>
+                                    <p className="text-xs font-black text-slate-700">Aguarde aprovação</p>
+                                    <p className="text-[10px] text-slate-400 font-bold">Seu vídeo atual continua no ar</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Form (AI or Manual) */}
             {(data.isAIGenerating || data.isAdding) && (

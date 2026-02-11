@@ -224,6 +224,41 @@ function setupIpcHandlers() {
         shouldFastStart: isDelayedBoot, // renderer usa pra pular animações
     }));
 
+    // TELEMETRIA: Métricas do sistema (CPU, RAM, uptime)
+    let prevCpuInfo = null;
+    ipcMain.handle('get-system-metrics', () => {
+        try {
+            const cpus = os.cpus();
+            let cpuPercent = 0;
+
+            if (prevCpuInfo && prevCpuInfo.length === cpus.length) {
+                let totalDelta = 0, idleDelta = 0;
+                for (let i = 0; i < cpus.length; i++) {
+                    const prev = prevCpuInfo[i].times;
+                    const curr = cpus[i].times;
+                    const total = (curr.user - prev.user) + (curr.nice - prev.nice) + (curr.sys - prev.sys) + (curr.idle - prev.idle) + (curr.irq - prev.irq);
+                    totalDelta += total;
+                    idleDelta += (curr.idle - prev.idle);
+                }
+                cpuPercent = totalDelta > 0 ? Math.round(((totalDelta - idleDelta) / totalDelta) * 100) : 0;
+            }
+            prevCpuInfo = cpus;
+
+            const totalMem = os.totalmem();
+            const freeMem = os.freemem();
+            const memUsedPercent = Math.round(((totalMem - freeMem) / totalMem) * 100);
+
+            return {
+                cpu: cpuPercent,
+                memUsedPercent,
+                uptime: Math.round(os.uptime() / 60), // minutes
+            };
+        } catch (e) {
+            console.error('[Metrics] Erro:', e.message);
+            return { cpu: 0, memUsedPercent: 0, uptime: 0 };
+        }
+    });
+
     // Auto-updater handlers
     ipcMain.handle('check-for-updates', () => checkForUpdates());
     ipcMain.handle('install-update', () => installUpdate());
@@ -335,24 +370,6 @@ function setupIpcHandlers() {
             console.error('[IPC] fetch-rss error:', err.message);
             return { success: false, error: err.message, items: [] };
         }
-    });
-
-    // ============================================
-    // POWER MANAGER: Hibernate/Wake do terminal
-    // ============================================
-    ipcMain.handle('power-enter-sleep', async (_, terminalData) => {
-        if (!app.isPackaged) {
-            console.log('[PowerManager] Modo dev — hibernação simulada');
-            return { success: true, simulated: true };
-        }
-
-        // Desabilitar PowerSaveBlocker antes de hibernar
-        if (powerSaveId !== null && powerSaveBlocker.isStarted(powerSaveId)) {
-            powerSaveBlocker.stop(powerSaveId);
-            console.log('[PowerManager] PowerSaveBlocker desabilitado para hibernate');
-        }
-
-        return await powerManager.enterPowerSave(terminalData);
     });
 
 }
@@ -475,15 +492,8 @@ app.whenReady().then(async () => {
     powerSaveId = powerSaveBlocker.start('prevent-display-sleep');
     console.log('[Electron] PowerSaveBlocker ativo:', powerSaveBlocker.isStarted(powerSaveId));
 
-    // ============================================
-    // POWER MANAGER: Setup no boot
-    // ============================================
-    if (app.isPackaged) {
-        powerManager.ensureHibernateEnabled();
-        powerManager.cancelScheduledWake();
-        powerManager.turnOnDisplay(); // Garantir display ligado após wake
-        console.log('[PowerManager] Boot cleanup completo');
-    }
+    // PowerManager desabilitado — PC fica ligado 24/7 em idle
+    // powerManager.js mantido no projeto para uso futuro
 
     // ============================================
     // INICIALIZAR CACHE MANAGER (Offline-First)

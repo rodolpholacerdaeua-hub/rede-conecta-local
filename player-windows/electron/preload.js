@@ -66,10 +66,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('cache-progress', (event, data) => callback(data));
     },
 
-    // ============================================
-    // POWER MANAGER API (Hibernate/Wake)
-    // ============================================
-    enterPowerSave: (terminalData) => ipcRenderer.invoke('power-enter-sleep', terminalData),
+    // PowerManager desabilitado — PC fica em idle 24/7
+    // enterPowerSave e wakeDisplay removidos
 
     // ============================================
     // RSS FEED API (CORS-free via main process)

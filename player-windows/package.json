@@ -1,6 +1,6 @@
 {
     "name": "player-windows",
-    "version": "20.2.4",
+    "version": "20.3.0",
     "description": "Rede Conecta - Digital Signage Player (Offline-First, Cross-Platform)",
     "main": "electron/main.js",
     "scripts": {
