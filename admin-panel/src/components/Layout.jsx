@@ -2,14 +2,16 @@ import React, { useState, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard, Monitor, Image, ListVideo, Users, Settings, LogOut,
-    Menu, Bell, Coins, CreditCard, Package, ChevronRight, X, BarChart3, UserCheck
+    Menu, Bell, Coins, CreditCard, Package, ChevronRight, X, BarChart3, UserCheck, HelpCircle, Megaphone
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ConnectaMascot from './ConnectaMascot';
+import OnboardingTour from './OnboardingTour';
 
-const SidebarItem = ({ icon: Icon, label, active, onClick }) => (
+const SidebarItem = ({ icon: Icon, label, active, onClick, dataTour }) => (
     <button
         onClick={onClick}
+        data-tour={dataTour}
         className={`w-full group flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-300 ${active
             ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
             : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
@@ -51,36 +53,40 @@ const Layout = () => {
     const menuItems = useMemo(() => {
         if (isAdmin) {
             return [
-                { icon: LayoutDashboard, label: 'Dashboard', path: `${routePrefix}/dashboard` },
+                { icon: LayoutDashboard, label: 'Dashboard', path: `${routePrefix}/dashboard`, tour: 'menu-dashboard' },
                 { icon: Monitor, label: 'Telas (Players)', path: `${routePrefix}/players` },
-                { icon: Image, label: 'Biblioteca', path: `${routePrefix}/media` },
-                { icon: ListVideo, label: 'Campanhas', path: `${routePrefix}/campaigns` },
+                { icon: Image, label: 'Biblioteca', path: `${routePrefix}/media`, tour: 'menu-biblioteca' },
+                { icon: ListVideo, label: 'Campanhas', path: `${routePrefix}/campaigns`, tour: 'menu-campanhas' },
                 { icon: ListVideo, label: 'Playlists Globais', path: `${routePrefix}/playlists` },
-                { icon: CreditCard, label: 'Créditos & Finanças', path: `${routePrefix}/finance` },
-                { icon: BarChart3, label: 'Relatórios PoP', path: `${routePrefix}/reports` },
+                { icon: CreditCard, label: 'Créditos & Finanças', path: `${routePrefix}/finance`, tour: 'menu-financeiro' },
+                { icon: BarChart3, label: 'Relatórios PoP', path: `${routePrefix}/reports`, tour: 'menu-relatorios' },
                 { icon: Users, label: 'Gestão de Usuários', path: `${routePrefix}/users` },
                 { icon: UserCheck, label: 'Gestão de Leads', path: `${routePrefix}/leads` },
+                { icon: HelpCircle, label: 'Central de Ajuda', path: `${routePrefix}/ajuda` },
                 { icon: Settings, label: 'Configurações', path: `${routePrefix}/settings` },
             ];
         }
 
         if (isParceiro) {
             return [
-                { icon: LayoutDashboard, label: 'Dashboard', path: `${routePrefix}/dashboard` },
-                { icon: Image, label: 'Minha Biblioteca', path: `${routePrefix}/biblioteca` },
-                { icon: ListVideo, label: 'Minhas Campanhas', path: `${routePrefix}/campanhas` },
-                { icon: CreditCard, label: 'Financeiro', path: `${routePrefix}/financeiro` },
+                { icon: LayoutDashboard, label: 'Dashboard', path: `${routePrefix}/dashboard`, tour: 'menu-dashboard' },
+                { icon: Megaphone, label: 'Meu Anúncio', path: `${routePrefix}/meu-anuncio` },
+                { icon: Image, label: 'Minha Biblioteca', path: `${routePrefix}/biblioteca`, tour: 'menu-biblioteca' },
+                { icon: ListVideo, label: 'Minhas Campanhas', path: `${routePrefix}/campanhas`, tour: 'menu-campanhas' },
+                { icon: CreditCard, label: 'Financeiro', path: `${routePrefix}/financeiro`, tour: 'menu-financeiro' },
+                { icon: HelpCircle, label: 'Central de Ajuda', path: `${routePrefix}/ajuda` },
             ];
         }
 
         // Cliente / Anunciante
         return [
-            { icon: LayoutDashboard, label: 'Dashboard', path: `${routePrefix}/dashboard` },
-            { icon: Image, label: 'Minha Biblioteca', path: `${routePrefix}/biblioteca` },
-            { icon: ListVideo, label: 'Minhas Campanhas', path: `${routePrefix}/campanhas` },
+            { icon: LayoutDashboard, label: 'Dashboard', path: `${routePrefix}/dashboard`, tour: 'menu-dashboard' },
+            { icon: Image, label: 'Minha Biblioteca', path: `${routePrefix}/biblioteca`, tour: 'menu-biblioteca' },
+            { icon: ListVideo, label: 'Minhas Campanhas', path: `${routePrefix}/campanhas`, tour: 'menu-campanhas' },
             { icon: Package, label: 'Meu Plano', path: `${routePrefix}/plano` },
-            { icon: CreditCard, label: 'Financeiro', path: `${routePrefix}/financeiro` },
-            { icon: BarChart3, label: 'Relatórios', path: `${routePrefix}/relatorios` },
+            { icon: CreditCard, label: 'Financeiro', path: `${routePrefix}/financeiro`, tour: 'menu-financeiro' },
+            { icon: BarChart3, label: 'Relatórios', path: `${routePrefix}/relatorios`, tour: 'menu-relatorios' },
+            { icon: HelpCircle, label: 'Central de Ajuda', path: `${routePrefix}/ajuda` },
         ];
     }, [isAdmin, isParceiro, routePrefix]);
 
@@ -125,6 +131,7 @@ const Layout = () => {
                             key={item.path}
                             icon={item.icon}
                             label={item.label}
+                            dataTour={item.tour}
                             active={location.pathname === item.path}
                             onClick={() => {
                                 navigate(item.path);
@@ -171,6 +178,7 @@ const Layout = () => {
                     <div className="flex items-center ml-auto space-x-4 md:space-x-6">
                         {/* Credit Balance */}
                         <div
+                            data-tour="credits-display"
                             onClick={() => navigate(`${routePrefix}/finance${isParceiro || isCliente ? 'iro' : ''}`)}
                             className="bg-white premium-shadow border border-slate-100 px-4 py-2 rounded-2xl flex items-center space-x-3 cursor-pointer hover:border-blue-300 hover:translate-y-[-2px] transition-all group"
                         >
@@ -208,6 +216,7 @@ const Layout = () => {
 
                 {/* Page Content */}
                 <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-8">
+                    <OnboardingTour />
                     <div className="max-w-7xl mx-auto animate-fade-in pb-12">
                         <Outlet />
                     </div>

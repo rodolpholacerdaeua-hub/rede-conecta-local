@@ -21,8 +21,10 @@ import MyPlan from './pages/MyPlan';
 import Player from './pages/Player';
 import PlaybackReports from './pages/PlaybackReports';
 import PartnerDashboard from './pages/PartnerDashboard';
+import PartnerAdPage from './pages/PartnerAdPage';
 import AIAgentSimulator from './components/AIAgentSimulator';
 import Layout from './components/Layout';
+import HelpCenter from './pages/HelpCenter';
 
 // Proteção de rota padrão
 const PrivateRoute = ({ children }) => {
@@ -33,8 +35,20 @@ const PrivateRoute = ({ children }) => {
 
 // Redirect por role após login
 const RoleRedirect = () => {
-  const { userData } = useAuth();
-  if (!userData) return <Navigate to="/login" replace />;
+  const { userData, currentUser } = useAuth();
+
+  // Se não tem nem currentUser, redirecionar para login
+  if (!currentUser) return <Navigate to="/login" replace />;
+
+  // Se tem currentUser mas userData ainda está carregando, mostrar loading
+  if (!userData) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white font-['Outfit']">
+        <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-2xl animate-spin mb-6" />
+        <h1 className="text-lg font-black uppercase tracking-[0.3em] animate-pulse">Carregando perfil...</h1>
+      </div>
+    );
+  }
 
   switch (userData.role) {
     case 'admin':
@@ -85,12 +99,15 @@ function App() {
             <Route path="/admin/leads" element={<SafePage><Leads /></SafePage>} />
             <Route path="/admin/reports" element={<SafePage><PlaybackReports /></SafePage>} />
             <Route path="/admin/settings" element={<div className="p-4">Configurações (Em breve)</div>} />
+            <Route path="/admin/ajuda" element={<SafePage><HelpCenter /></SafePage>} />
 
             {/* Parceiro */}
             <Route path="/parceiro/:slug/dashboard" element={<SafePage><PartnerDashboard /></SafePage>} />
+            <Route path="/parceiro/:slug/meu-anuncio" element={<SafePage><PartnerAdPage /></SafePage>} />
             <Route path="/parceiro/:slug/biblioteca" element={<SafePage><MediaLibrary /></SafePage>} />
             <Route path="/parceiro/:slug/campanhas" element={<SafePage><Campaigns /></SafePage>} />
             <Route path="/parceiro/:slug/financeiro" element={<SafePage><Finance /></SafePage>} />
+            <Route path="/parceiro/:slug/ajuda" element={<SafePage><HelpCenter /></SafePage>} />
 
             {/* Anunciante (cliente) */}
             <Route path="/anunciante/:slug/dashboard" element={<SafePage><Dashboard /></SafePage>} />
@@ -99,6 +116,7 @@ function App() {
             <Route path="/anunciante/:slug/plano" element={<SafePage><MyPlan /></SafePage>} />
             <Route path="/anunciante/:slug/financeiro" element={<SafePage><Finance /></SafePage>} />
             <Route path="/anunciante/:slug/relatorios" element={<SafePage><PlaybackReports /></SafePage>} />
+            <Route path="/anunciante/:slug/ajuda" element={<SafePage><HelpCenter /></SafePage>} />
           </Route>
 
           {/* ═══ LEGACY REDIRECTS (manter compatibilidade) ═══ */}

@@ -1,0 +1,6 @@
+player-windows
+.git
+*.md
+.agent
+supabase/functions
+docs

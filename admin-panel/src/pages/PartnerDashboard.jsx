@@ -4,16 +4,35 @@
  * Seções: Barra de Ocupação, Card Afiliado, Extrato de Ganhos, Status Terminal
  */
 import React from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
     Gift, Share2, Wifi, WifiOff, TrendingUp, DollarSign,
     Clock, CheckCircle, AlertTriangle, Copy, ExternalLink,
-    BarChart3, Zap
+    BarChart3, Zap, Activity
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePartnerData } from '../hooks/usePartnerData';
 
+// ── Tempo relativo ──
+const timeAgo = (dateStr) => {
+    const now = new Date();
+    const date = new Date(dateStr);
+    const diffMs = now - date;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'Agora mesmo';
+    if (diffMin < 60) return `há ${diffMin}min`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `há ${diffH}h`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD === 1) return 'Ontem';
+    return `há ${diffD} dias`;
+};
+
 const PartnerDashboard = () => {
     const { userData } = useAuth();
+    const navigate = useNavigate();
+    const { slug } = useParams();
+    const routePrefix = `/parceiro/${slug}`;
     const {
         partnerCodes,
         commissions,
@@ -80,7 +99,10 @@ const PartnerDashboard = () => {
             {/* ── Cards de Métricas ───────────────────────────── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
                 {/* Ganhos do Mês */}
-                <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-lg transition-all group">
+                <div
+                    onClick={() => navigate(`${routePrefix}/financeiro`)}
+                    className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-lg transition-all group cursor-pointer active:scale-95"
+                >
                     <div className="flex items-center justify-between mb-4">
                         <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
                             <DollarSign className="w-6 h-6 text-emerald-500" />
@@ -96,7 +118,10 @@ const PartnerDashboard = () => {
                 </div>
 
                 {/* Pendente de Repasse */}
-                <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-lg transition-all group">
+                <div
+                    onClick={() => navigate(`${routePrefix}/financeiro`)}
+                    className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-lg transition-all group cursor-pointer active:scale-95"
+                >
                     <div className="flex items-center justify-between mb-4">
                         <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center group-hover:bg-amber-100 transition-colors">
                             <Clock className="w-6 h-6 text-amber-500" />
@@ -128,8 +153,8 @@ const PartnerDashboard = () => {
                 <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-lg transition-all group">
                     <div className="flex items-center justify-between mb-4">
                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${terminal?.status === 'online'
-                                ? 'bg-emerald-50 group-hover:bg-emerald-100'
-                                : 'bg-slate-100 group-hover:bg-slate-200'
+                            ? 'bg-emerald-50 group-hover:bg-emerald-100'
+                            : 'bg-slate-100 group-hover:bg-slate-200'
                             }`}>
                             {terminal?.status === 'online'
                                 ? <Wifi className="w-6 h-6 text-emerald-500" />
@@ -137,8 +162,8 @@ const PartnerDashboard = () => {
                             }
                         </div>
                         <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider ${terminal?.status === 'online'
-                                ? 'text-emerald-500 bg-emerald-50'
-                                : 'text-slate-400 bg-slate-100'
+                            ? 'text-emerald-500 bg-emerald-50'
+                            : 'text-slate-400 bg-slate-100'
                             }`}>
                             {terminal?.status === 'online' ? 'Online' : 'Offline'}
                         </span>
@@ -149,6 +174,74 @@ const PartnerDashboard = () => {
                     <p className="text-xs text-slate-400 mt-1 font-semibold truncate">
                         {terminal?.location || terminal?.city || '—'}
                     </p>
+                </div>
+            </div>
+
+            {/* ── Atividade Recente ────────────────────────────── */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-100">
+                    <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                        <Activity className="w-5 h-5 text-blue-500" />
+                        Atividade Recente
+                    </h2>
+                </div>
+                <div className="divide-y divide-slate-50">
+                    {/* Terminal Status */}
+                    {terminal && (
+                        <div className="flex items-center gap-4 px-6 py-4">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${terminal.status === 'online' ? 'bg-emerald-50' : 'bg-slate-100'
+                                }`}>
+                                {terminal.status === 'online'
+                                    ? <Wifi className="w-5 h-5 text-emerald-500" />
+                                    : <WifiOff className="w-5 h-5 text-slate-400" />
+                                }
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-slate-800 truncate">
+                                    Terminal {terminal.name} está {terminal.status === 'online' ? 'online' : 'offline'}
+                                </p>
+                                <p className="text-xs text-slate-400">
+                                    {terminal.last_seen ? `Último sinal: ${timeAgo(terminal.last_seen)}` : 'Sem dados'}
+                                </p>
+                            </div>
+                            <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${terminal.status === 'online' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'
+                                }`} />
+                        </div>
+                    )}
+                    {/* Recent Commissions */}
+                    {commissions.slice(0, 4).map(c => (
+                        <div key={c.id} className="flex items-center gap-4 px-6 py-4">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${c.status === 'paid' ? 'bg-emerald-50'
+                                    : c.status === 'approved' ? 'bg-blue-50'
+                                        : 'bg-amber-50'
+                                }`}>
+                                {c.status === 'paid'
+                                    ? <CheckCircle className="w-5 h-5 text-emerald-500" />
+                                    : c.status === 'approved'
+                                        ? <DollarSign className="w-5 h-5 text-blue-500" />
+                                        : <Clock className="w-5 h-5 text-amber-500" />
+                                }
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-slate-800">
+                                    {c.type === 'referral_bonus' ? 'Bônus de indicação' : 'Revenue Share'}
+                                    {' — '}
+                                    <span className="text-emerald-600">R$ {Number(c.commission).toFixed(2).replace('.', ',')}</span>
+                                </p>
+                                <p className="text-xs text-slate-400">
+                                    {c.status === 'paid' ? 'Pago' : c.status === 'approved' ? 'Aprovado' : 'Pendente'}{' • '}
+                                    {timeAgo(c.created_at)}
+                                </p>
+                            </div>
+                        </div>
+                    ))}
+                    {commissions.length === 0 && !terminal && (
+                        <div className="p-8 text-center text-slate-400">
+                            <Activity className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                            <p className="font-semibold">Nenhuma atividade ainda</p>
+                            <p className="text-sm mt-1">As atividades aparecerão aqui quando você começar a ganhar comissões.</p>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -180,8 +273,8 @@ const PartnerDashboard = () => {
                             <div
                                 key={i}
                                 className={`aspect-square rounded-xl border-2 flex items-center justify-center text-xs font-black transition-all ${isOccupied
-                                        ? 'bg-emerald-100 border-emerald-300 text-emerald-600 shadow-sm shadow-emerald-200/50'
-                                        : 'bg-slate-50 border-slate-200 text-slate-300 border-dashed'
+                                    ? 'bg-emerald-100 border-emerald-300 text-emerald-600 shadow-sm shadow-emerald-200/50'
+                                    : 'bg-slate-50 border-slate-200 text-slate-300 border-dashed'
                                     }`}
                             >
                                 {isOccupied ? <CheckCircle className="w-5 h-5" /> : (i + 1)}
@@ -311,8 +404,8 @@ const PartnerDashboard = () => {
                                         </td>
                                         <td className="px-6 py-4">
                                             <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${c.type === 'referral_bonus'
-                                                    ? 'bg-violet-50 text-violet-600'
-                                                    : 'bg-blue-50 text-blue-600'
+                                                ? 'bg-violet-50 text-violet-600'
+                                                : 'bg-blue-50 text-blue-600'
                                                 }`}>
                                                 {c.type === 'referral_bonus' ? 'Bônus Indicação' : 'Revenue Share'}
                                             </span>
@@ -325,10 +418,10 @@ const PartnerDashboard = () => {
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${c.status === 'paid'
-                                                    ? 'bg-emerald-50 text-emerald-600'
-                                                    : c.status === 'approved'
-                                                        ? 'bg-blue-50 text-blue-600'
-                                                        : 'bg-amber-50 text-amber-600'
+                                                ? 'bg-emerald-50 text-emerald-600'
+                                                : c.status === 'approved'
+                                                    ? 'bg-blue-50 text-blue-600'
+                                                    : 'bg-amber-50 text-amber-600'
                                                 }`}>
                                                 {c.status === 'paid' ? 'Pago' : c.status === 'approved' ? 'Aprovado' : 'Pendente'}
                                             </span>

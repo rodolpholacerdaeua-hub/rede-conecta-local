@@ -115,21 +115,66 @@ const CampaignModeration = ({
                 }
             }
 
-            // ── Gerar Comissões se houver partner_code ────────
+            // ── COMISSÃO 1: Revenue Share 20% por ocupação de slot ──
+            // Apenas para campanhas NÃO-GLOBAIS alocadas em terminais locais
+            if (!camp.is_global) {
+                try {
+                    const targetTerms = camp.target_terminals || [];
+                    const netAmount = Number(camp.credits_cost || 0);
+                    const costPerSlot = targetTerms.length > 0 ? netAmount / targetTerms.length : netAmount;
+                    const REVENUE_SHARE_PCT = 0.20;
+
+                    for (const termId of targetTerms) {
+                        // Verificar se esse terminal tem um parceiro vinculado
+                        const { data: partnerCode } = await supabase
+                            .from('partner_codes')
+                            .select('id, partner_id')
+                            .eq('terminal_id', termId)
+                            .limit(1)
+                            .maybeSingle();
+
+                        if (partnerCode) {
+                            const revenueCommission = costPerSlot * REVENUE_SHARE_PCT;
+                            const now = new Date();
+                            const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                            const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+                            await supabase.from('partner_commissions').insert({
+                                partner_id: partnerCode.partner_id,
+                                campaign_id: camp.id,
+                                partner_code_id: partnerCode.id,
+                                type: 'revenue_share',
+                                gross_amount: costPerSlot,
+                                net_amount: costPerSlot,
+                                commission: revenueCommission,
+                                status: 'pending',
+                                period_start: periodStart.toISOString().split('T')[0],
+                                period_end: periodEnd.toISOString().split('T')[0]
+                            });
+
+                            console.log(`💰 [REVENUE SHARE] Parceiro ${partnerCode.partner_id} → R$${revenueCommission.toFixed(2)} (20% de R$${costPerSlot.toFixed(2)}/slot no terminal ${termId})`);
+                        }
+                    }
+                } catch (revErr) {
+                    console.error('[REVENUE SHARE] Erro:', revErr);
+                }
+            }
+
+            // ── COMISSÃO 2: Indicação 15% via código do parceiro ──
             if (camp.partner_code_id) {
                 try {
                     const { data: partnerCode } = await supabase
                         .from('partner_codes')
-                        .select('id, partner_id, referral_pct, revenue_share_pct')
+                        .select('id, partner_id')
                         .eq('id', camp.partner_code_id)
                         .single();
 
                     if (partnerCode) {
                         const netAmount = Number(camp.credits_cost || 0);
                         const grossAmount = Number(camp.original_cost || netAmount);
+                        const REFERRAL_PCT = 0.15;
+                        const referralCommission = netAmount * REFERRAL_PCT;
 
-                        // Bônus de Indicação (uma vez)
-                        const referralCommission = netAmount * (Number(partnerCode.referral_pct) / 100);
                         await supabase.from('partner_commissions').insert({
                             partner_id: partnerCode.partner_id,
                             campaign_id: camp.id,
@@ -141,29 +186,10 @@ const CampaignModeration = ({
                             status: 'pending'
                         });
 
-                        // Revenue Share mensal
-                        const revenueCommission = netAmount * (Number(partnerCode.revenue_share_pct) / 100);
-                        const now = new Date();
-                        const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-                        const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                        await supabase.from('partner_commissions').insert({
-                            partner_id: partnerCode.partner_id,
-                            campaign_id: camp.id,
-                            partner_code_id: partnerCode.id,
-                            type: 'revenue_share',
-                            gross_amount: grossAmount,
-                            net_amount: netAmount,
-                            commission: revenueCommission,
-                            status: 'pending',
-                            period_start: periodStart.toISOString().split('T')[0],
-                            period_end: periodEnd.toISOString().split('T')[0]
-                        });
-
-                        console.log(`💰 [COMISSÃO] Geradas comissões para parceiro ${partnerCode.partner_id}: referral R$${referralCommission.toFixed(2)} + revenue R$${revenueCommission.toFixed(2)}`);
+                        console.log(`💰 [REFERRAL] Parceiro ${partnerCode.partner_id} → R$${referralCommission.toFixed(2)} (15% de R$${netAmount.toFixed(2)})`);
                     }
-                } catch (commErr) {
-                    console.error('[COMISSÃO] Erro ao gerar comissões:', commErr);
-                    // Não bloquear a aprovação por erro de comissão
+                } catch (refErr) {
+                    console.error('[REFERRAL] Erro:', refErr);
                 }
             }
 

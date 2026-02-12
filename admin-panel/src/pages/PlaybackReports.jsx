@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Calendar, Monitor, Play, Download, Filter, RefreshCw, TrendingUp, Clock, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BarChart3, Calendar, Monitor, Play, Download, Filter, RefreshCw, TrendingUp, Clock, Eye, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { generateCertificate } from '../utils/generateCertificate';
 
 const PlaybackReports = () => {
     const { currentUser, userData } = useAuth();
@@ -9,7 +10,7 @@ const PlaybackReports = () => {
     const [terminals, setTerminals] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedTerminal, setSelectedTerminal] = useState('all');
-    const [dateRange, setDateRange] = useState('today');
+    const [dateRange, setDateRange] = useState('week');
     const [stats, setStats] = useState({ total: 0, uniqueMedia: 0, avgPerHour: 0 });
 
     // Paginação
@@ -79,6 +80,7 @@ const PlaybackReports = () => {
                 .select(`
                     id,
                     media_name,
+                    media_id,
                     slot_type,
                     played_at,
                     status,
@@ -92,8 +94,28 @@ const PlaybackReports = () => {
 
             if (selectedTerminal !== 'all') {
                 query = query.eq('terminal_id', selectedTerminal);
+            } else if (userData?.role === 'cliente') {
+                // Cliente: filtrar por mídias das campanhas que ele possui
+                const { data: userCampaigns } = await supabase
+                    .from('campaigns')
+                    .select('v_media_id, h_media_id')
+                    .eq('owner_id', currentUser.id);
+
+                const mediaIds = (userCampaigns || [])
+                    .flatMap(c => [c.v_media_id, c.h_media_id])
+                    .filter(Boolean);
+
+                if (mediaIds.length > 0) {
+                    query = query.in('media_id', mediaIds);
+                } else {
+                    // Sem campanhas = sem logs
+                    setLogs([]);
+                    setStats({ total: 0, uniqueMedia: 0, avgPerHour: 0 });
+                    setLoading(false);
+                    return;
+                }
             } else if (userData?.role !== 'admin') {
-                // Filtrar por terminais do usuário
+                // Parceiro: filtrar por terminais
                 const terminalIds = terminals.map(t => t.id);
                 if (terminalIds.length > 0) {
                     query = query.in('terminal_id', terminalIds);
@@ -183,14 +205,30 @@ const PlaybackReports = () => {
                     <p className="text-slate-500">Proof of Play - Histórico de mídias exibidas</p>
                 </div>
 
-                <button
-                    onClick={exportCSV}
-                    disabled={logs.length === 0}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50"
-                >
-                    <Download className="w-4 h-4" />
-                    Exportar CSV
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => generateCertificate({
+                            logs,
+                            terminals,
+                            userName: userData?.name || userData?.email || 'N/A',
+                            dateRange,
+                            stats
+                        })}
+                        disabled={logs.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                        <FileText className="w-4 h-4" />
+                        Certificado PDF
+                    </button>
+                    <button
+                        onClick={exportCSV}
+                        disabled={logs.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                        <Download className="w-4 h-4" />
+                        Exportar CSV
+                    </button>
+                </div>
             </div>
 
             {/* Filtros */}

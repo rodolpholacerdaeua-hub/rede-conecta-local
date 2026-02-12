@@ -181,88 +181,90 @@ const Leads = () => {
                 ) : filteredLeads.length === 0 ? (
                     <div className="p-8 text-center text-slate-400">Nenhum lead encontrado</div>
                 ) : (
-                    <table className="w-full text-left">
-                        <thead>
-                            <tr className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-100">
-                                <th className="px-6 py-4">Lead</th>
-                                <th className="px-6 py-4">Contato</th>
-                                <th className="px-6 py-4">Status</th>
-                                <th className="px-6 py-4">Último Contato</th>
-                                <th className="px-6 py-4">Notas</th>
-                                <th className="px-6 py-4 text-right">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 font-bold text-sm">
-                            {filteredLeads.map(lead => {
-                                const StatusIcon = STATUS_CONFIG[lead.status]?.icon || Clock;
-                                return (
-                                    <tr key={lead.id} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center text-white font-black">
-                                                    {lead.email?.[0]?.toUpperCase() || '?'}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left min-w-[800px]">
+                            <thead>
+                                <tr className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-100">
+                                    <th className="px-6 py-4">Lead</th>
+                                    <th className="px-6 py-4">Contato</th>
+                                    <th className="px-6 py-4">Status</th>
+                                    <th className="px-6 py-4">Último Contato</th>
+                                    <th className="px-6 py-4">Notas</th>
+                                    <th className="px-6 py-4 text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-bold text-sm">
+                                {filteredLeads.map(lead => {
+                                    const StatusIcon = STATUS_CONFIG[lead.status]?.icon || Clock;
+                                    return (
+                                        <tr key={lead.id} className="hover:bg-slate-50/50 transition-colors">
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center text-white font-black">
+                                                        {lead.email?.[0]?.toUpperCase() || '?'}
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-slate-800">{lead.users?.name || lead.email?.split('@')[0]}</div>
+                                                        <div className="text-[10px] text-slate-400">{lead.source || 'signup'}</div>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <div className="text-slate-800">{lead.users?.name || lead.email?.split('@')[0]}</div>
-                                                    <div className="text-[10px] text-slate-400">{lead.source || 'signup'}</div>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="space-y-1">
-                                                <a href={`mailto:${lead.email}`} className="flex items-center gap-1.5 text-slate-600 hover:text-blue-600 transition-colors text-xs">
-                                                    <Mail className="w-3.5 h-3.5" />
-                                                    {lead.email}
-                                                </a>
-                                                {lead.phone && (
-                                                    <a
-                                                        href={`https://wa.me/55${lead.phone.replace(/\D/g, '')}`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="flex items-center gap-1.5 text-green-600 hover:text-green-700 transition-colors text-xs"
-                                                    >
-                                                        <Phone className="w-3.5 h-3.5" />
-                                                        {lead.phone}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="space-y-1">
+                                                    <a href={`mailto:${lead.email}`} className="flex items-center gap-1.5 text-slate-600 hover:text-blue-600 transition-colors text-xs">
+                                                        <Mail className="w-3.5 h-3.5" />
+                                                        {lead.email}
                                                     </a>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase border ${STATUS_CONFIG[lead.status]?.color || 'bg-slate-100 text-slate-500'}`}>
-                                                <StatusIcon className="w-3.5 h-3.5" />
-                                                {STATUS_CONFIG[lead.status]?.label || lead.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-slate-500 text-xs">
-                                            {lead.last_contact_at ? (
-                                                <div className="flex items-center gap-1.5">
-                                                    <Calendar className="w-3.5 h-3.5" />
-                                                    {new Date(lead.last_contact_at).toLocaleDateString('pt-BR')}
+                                                    {lead.phone && (
+                                                        <a
+                                                            href={`https://wa.me/55${lead.phone.replace(/\D/g, '')}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="flex items-center gap-1.5 text-green-600 hover:text-green-700 transition-colors text-xs"
+                                                        >
+                                                            <Phone className="w-3.5 h-3.5" />
+                                                            {lead.phone}
+                                                        </a>
+                                                    )}
                                                 </div>
-                                            ) : (
-                                                <span className="text-slate-300 italic">Nunca</span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {lead.notes ? (
-                                                <span className="text-xs text-slate-600 line-clamp-2 max-w-[200px]">{lead.notes}</span>
-                                            ) : (
-                                                <span className="text-slate-300 text-xs italic">Sem notas</span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <button
-                                                onClick={() => handleEditClick(lead)}
-                                                className="text-slate-300 hover:text-blue-600 transition-colors p-2 hover:bg-blue-50 rounded-lg"
-                                            >
-                                                <Edit2 className="w-4 h-4" />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase border ${STATUS_CONFIG[lead.status]?.color || 'bg-slate-100 text-slate-500'}`}>
+                                                    <StatusIcon className="w-3.5 h-3.5" />
+                                                    {STATUS_CONFIG[lead.status]?.label || lead.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-slate-500 text-xs">
+                                                {lead.last_contact_at ? (
+                                                    <div className="flex items-center gap-1.5">
+                                                        <Calendar className="w-3.5 h-3.5" />
+                                                        {new Date(lead.last_contact_at).toLocaleDateString('pt-BR')}
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-300 italic">Nunca</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {lead.notes ? (
+                                                    <span className="text-xs text-slate-600 line-clamp-2 max-w-[200px]">{lead.notes}</span>
+                                                ) : (
+                                                    <span className="text-slate-300 text-xs italic">Sem notas</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <button
+                                                    onClick={() => handleEditClick(lead)}
+                                                    className="text-slate-300 hover:text-blue-600 transition-colors p-2 hover:bg-blue-50 rounded-lg"
+                                                >
+                                                    <Edit2 className="w-4 h-4" />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
                 )}
             </div>
 
@@ -295,8 +297,8 @@ const Leads = () => {
                                                 key={key}
                                                 onClick={() => setEditStatus(key)}
                                                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-black uppercase border-2 transition-all ${editStatus === key
-                                                        ? config.color.replace('border-', 'border-2 border-') + ' ring-2 ring-offset-1'
-                                                        : 'border-transparent ' + config.color
+                                                    ? config.color.replace('border-', 'border-2 border-') + ' ring-2 ring-offset-1'
+                                                    : 'border-transparent ' + config.color
                                                     }`}
                                             >
                                                 <Icon className="w-4 h-4" />

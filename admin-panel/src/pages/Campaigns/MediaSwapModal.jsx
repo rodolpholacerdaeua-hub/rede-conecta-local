@@ -14,6 +14,7 @@ import InlineUploader from './InlineUploader';
 
 const MediaSwapModal = ({ campaign, mediaFiles, onClose, onSwapSubmitted }) => {
     const { currentUser, userData } = useAuth();
+    const isAdmin = userData?.role === 'admin';
     const [newMediaId, setNewMediaId] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -21,7 +22,7 @@ const MediaSwapModal = ({ campaign, mediaFiles, onClose, onSwapSubmitted }) => {
 
     const currentMedia = mediaFiles.find(m => m.id === campaign.v_media_id);
     const userCredits = userData?.tokens || 0;
-    const canAfford = userCredits >= SWAP_FEE;
+    const canAfford = isAdmin || userCredits >= SWAP_FEE;
 
     const handleSubmitSwap = async () => {
         if (!newMediaId) return alert('Envie a nova mídia primeiro!');
@@ -30,13 +31,15 @@ const MediaSwapModal = ({ campaign, mediaFiles, onClose, onSwapSubmitted }) => {
 
         setIsSubmitting(true);
         try {
-            // 1. Deduct credits
-            const newBalance = userCredits - SWAP_FEE;
-            const { error: balanceError } = await supabase
-                .from('users')
-                .update({ tokens: newBalance })
-                .eq('id', currentUser.id);
-            if (balanceError) throw balanceError;
+            // 1. Deduct credits (skip for admin)
+            const newBalance = isAdmin ? userCredits : userCredits - SWAP_FEE;
+            if (!isAdmin) {
+                const { error: balanceError } = await supabase
+                    .from('users')
+                    .update({ tokens: newBalance })
+                    .eq('id', currentUser.id);
+                if (balanceError) throw balanceError;
+            }
 
             // 2. Log the transaction
             await supabase.from('credit_transactions').insert({

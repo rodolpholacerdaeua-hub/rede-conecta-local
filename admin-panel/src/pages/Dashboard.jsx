@@ -146,12 +146,15 @@ const Dashboard = () => {
         };
     }, [currentUser?.id, userData?.role]);
 
+    const slug = userData?.slug || userData?.id || '';
+    const clientPrefix = `/anunciante/${slug}`;
+
     const stats = useMemo(() => {
         if (isCliente) {
             return [
-                { icon: Play, label: 'Suas Campanhas', value: campaigns.length, color: 'bg-indigo-600', subtext: 'Criadas por você', onClick: () => navigate('/redirect') },
-                { icon: BarChart3, label: 'Exibições (POP)', value: popCount.toLocaleString(), color: 'bg-blue-600', subtext: 'Total comprovado', onClick: () => navigate('/redirect') },
-                { icon: Monitor, label: 'Telas Ativas', value: calculateUsedScreens(campaigns), color: 'bg-emerald-500', subtext: 'Ocupação de quota', onClick: () => navigate('/redirect') },
+                { icon: Play, label: 'Suas Campanhas', value: campaigns.length, color: 'bg-indigo-600', subtext: 'Criadas por você', onClick: () => navigate(`${clientPrefix}/campanhas`) },
+                { icon: BarChart3, label: 'Exibições (POP)', value: popCount.toLocaleString(), color: 'bg-blue-600', subtext: 'Total comprovado', onClick: () => navigate(`${clientPrefix}/relatorios`) },
+                { icon: Monitor, label: 'Telas Ativas', value: calculateUsedScreens(campaigns), color: 'bg-emerald-500', subtext: 'Ocupação de quota' },
                 { icon: Coins, label: 'Saldo Atual', value: userData?.tokens || 0, color: 'bg-amber-500', subtext: 'Créditos Disponíveis', onClick: () => setIsCheckoutOpen(true) },
             ];
         } else {
@@ -189,7 +192,7 @@ const Dashboard = () => {
             )}
 
             {/* V14.3.1: Painel de Alertas de Anomalias - Monitoramento do Sistema */}
-            {!isCliente && <ScreenAlertsPanel terminals={terminals} />}
+            {isAdmin && <ScreenAlertsPanel terminals={terminals} />}
 
             {/* Welcome Hero */}
             <div className="bg-gradient-premium rounded-[2.5rem] p-10 md:p-12 text-white shadow-2xl relative overflow-hidden">

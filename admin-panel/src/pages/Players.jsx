@@ -3,9 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { canCreateTerminal, getPlanQuota, getEffectivePlanQuota, isAdmin } from '../utils/planHelpers';
 import { db, getDocument, updateDocument, createDocument, deleteDocument, subscribeToCollection } from '../db';
 import { supabase } from '../supabase';
-import { Monitor, Cpu, Thermometer, HardDrive, Zap, Power, Play, Plus, Search, Filter, Layers, Users, Settings, CreditCard, Info, QrCode, Trash2, AlertTriangle, RotateCw } from 'lucide-react';
+import { Monitor, Cpu, Thermometer, HardDrive, Zap, Power, Play, Plus, Search, Filter, Layers, Users, Settings, CreditCard, Info, QrCode, Trash2, AlertTriangle, RotateCw, User, Link } from 'lucide-react';
 
 import GroupManagerModal from '../components/GroupManagerModal';
+import PartnerSelector from '../components/PartnerSelector';
 import CheckoutModal from '../components/CheckoutModal';
 import ScreenAlertsPanel from '../components/ScreenAlertsPanel';
 import PasswordConfirmModal from '../components/PasswordConfirmModal';
@@ -136,7 +137,7 @@ const MiniPlayerPreview = ({ terminal, activePlaylist, onClose }) => {
     );
 };
 
-const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, onUpdateField, onDelete }) => {
+const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, onUpdateField, onDelete, linkedPartner, onOpenPartnerSelector, onResetTerminal }) => {
     const [now, setNow] = useState(new Date());
     const [localLastSync, setLocalLastSync] = useState(() => {
         if (!terminal.last_seen) return 0;
@@ -306,6 +307,49 @@ const TerminalCard = ({ terminal, playlists, availableGroups, onAssignPlaylist, 
                         <Cpu className="w-4 h-4 text-slate-400" />
                         <span className="text-sm font-medium">{terminal.metrics?.cpu || '--'}%</span>
                     </div>
+                    <div className="flex items-center space-x-2 text-slate-600">
+                        <Cpu className="w-4 h-4 text-slate-400" />
+                        <span className="text-sm font-medium">{terminal.metrics?.cpu || '--'}%</span>
+                    </div>
+
+                    {/* Vínculo com Parceiro */}
+                    <div className="col-span-2 bg-slate-50 rounded-lg p-2 border border-slate-100 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <User className="w-4 h-4 text-indigo-400" />
+                            <div>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Parceiro Vinculado</p>
+                                <p className="text-xs font-bold text-slate-700 truncate max-w-[120px]">
+                                    {linkedPartner ? (linkedPartner.users?.display_name || linkedPartner.users?.name || linkedPartner.code) : 'Nenhum'}
+                                </p>
+                            </div>
+                        </div>
+                        {linkedPartner ? (
+                            <div className="text-right space-y-1">
+                                <p className="text-[9px] font-mono text-slate-400">{linkedPartner.code}</p>
+                                <div className="flex gap-2 justify-end">
+                                    <button
+                                        onClick={() => onOpenPartnerSelector(terminal)}
+                                        className="text-[9px] text-blue-600 font-bold hover:underline"
+                                    >
+                                        Alterar
+                                    </button>
+                                    <button
+                                        onClick={() => onResetTerminal(terminal, linkedPartner)}
+                                        className="text-[9px] text-red-500 font-bold hover:underline"
+                                    >
+                                        Resetar
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => onOpenPartnerSelector(terminal)}
+                                className="bg-white border border-dashed border-indigo-300 text-indigo-600 px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-50 transition-colors flex items-center gap-1"
+                            >
+                                <Link className="w-3 h-3" /> Vincular
+                            </button>
+                        )}
+                    </div>
                 </div>
 
 
@@ -454,6 +498,16 @@ const Players = () => {
     const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
     const [availableGroups, setAvailableGroups] = useState([]);
 
+    // Estados para Vinculação de Parceiro
+    const [linkedPartners, setLinkedPartners] = useState({}); // Mapa: terminal_id -> partner_code record
+    const [showPartnerSelector, setShowPartnerSelector] = useState(false);
+    const [selectedTerminalForPartner, setSelectedTerminalForPartner] = useState(null);
+
+    // Reset Financeiro do Terminal
+    const [resetModal, setResetModal] = useState(null); // { terminal, partner }
+    const [resetAdminPassword, setResetAdminPassword] = useState('');
+    const [resetProcessing, setResetProcessing] = useState(false);
+
     const terminalValidation = canCreateTerminal(userData, terminals.length);
 
     // Derivar grupos totais (da coleção + ad-hoc dos terminais)
@@ -507,6 +561,23 @@ const Players = () => {
                     }
                 } catch (gErr) {
                     console.log("Players: Tabela de grupos não disponível (ok)");
+                }
+
+                // Carregar Vínculos de Parceiros
+                try {
+                    const { data: partnersData } = await supabase
+                        .from('partner_codes')
+                        .select('terminal_id, code, partner_id, assigned_at, users(display_name, name, email)');
+
+                    if (isMounted && partnersData) {
+                        const partnersMap = {};
+                        partnersData.forEach(p => {
+                            if (p.terminal_id) partnersMap[p.terminal_id] = p;
+                        });
+                        setLinkedPartners(partnersMap);
+                    }
+                } catch (pErr) {
+                    console.error("Players: Erro ao carregar parceiros:", pErr);
                 }
             } catch (err) {
                 console.error("Players: Erro ao carregar dados:", err);
@@ -820,6 +891,83 @@ const Players = () => {
         }
     };
 
+    // Handler para vincular parceiro
+    const handleAssignPartner = async (partnerUser) => {
+        if (!selectedTerminalForPartner) return;
+
+        try {
+            // 1. Gerar Código: {PRIMEIRO_NOME}{DESCONTO%} — ex: CLAUDIA5
+            const firstName = (partnerUser.display_name || partnerUser.name || 'PARCEIRO').split(' ')[0].toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const code = `${firstName}5`;
+
+            // 2. Inserir/Atualizar no Supabase
+            // Verificação manual para garantir integridade caso não haja constraint UNIQUE
+            const { data: existing } = await supabase
+                .from('partner_codes')
+                .select('id')
+                .eq('terminal_id', selectedTerminalForPartner.id)
+                .maybeSingle();
+
+            let resultData;
+
+            if (existing) {
+                // Atualizar existente
+                const { data, error } = await supabase
+                    .from('partner_codes')
+                    .update({
+                        partner_id: partnerUser.id,
+                        code: code,
+                        discount_pct: 5,
+                        referral_pct: 15,
+                        revenue_share_pct: 20,
+                        assigned_at: new Date().toISOString()
+                    })
+                    .eq('id', existing.id)
+                    .select('terminal_id, code, users(display_name, email)')
+                    .single();
+
+                if (error) throw error;
+                resultData = data;
+            } else {
+                // Inserir novo
+                const { data, error } = await supabase
+                    .from('partner_codes')
+                    .insert({
+                        partner_id: partnerUser.id,
+                        terminal_id: selectedTerminalForPartner.id,
+                        code: code,
+                        discount_pct: 5,
+                        referral_pct: 15,
+                        revenue_share_pct: 20,
+                        assigned_at: new Date().toISOString()
+                    })
+                    .select('terminal_id, code, users(display_name, email)')
+                    .single();
+
+                if (error) throw error;
+                resultData = data;
+            }
+
+            // 3. Atualizar estado local
+            setLinkedPartners(prev => ({
+                ...prev,
+                [selectedTerminalForPartner.id]: {
+                    ...resultData,
+                    // O join retorna users como objeto, precisamos garantir estrutura
+                    users: resultData.users || { display_name: partnerUser.display_name, email: partnerUser.email }
+                }
+            }));
+
+            alert(`✅ Parceiro vinculado com sucesso!\n\nParceiro: ${partnerUser.display_name}\nCódigo Gerado: ${code}`);
+            setShowPartnerSelector(false);
+            setSelectedTerminalForPartner(null);
+
+        } catch (e) {
+            console.error('Erro ao vincular parceiro:', e);
+            alert('Erro ao vincular parceiro: ' + e.message);
+        }
+    };
+
     // Estado do modal de confirmação de exclusão
     const [deleteTarget, setDeleteTarget] = useState(null);
 
@@ -836,6 +984,95 @@ const Players = () => {
             alert("Erro ao excluir terminal.");
         } finally {
             setDeleteTarget(null);
+        }
+    };
+
+    // ── Reset Financeiro do Terminal ──────────────────────────
+    const handleOpenResetModal = (terminal, partner) => {
+        setResetModal({ terminal, partner });
+        setResetAdminPassword('');
+    };
+
+    const handleConfirmReset = async () => {
+        if (!resetModal || !resetAdminPassword) return;
+        setResetProcessing(true);
+
+        try {
+            // 1. Verificar senha do admin
+            const { error: authError } = await supabase.auth.signInWithPassword({
+                email: currentUser.email,
+                password: resetAdminPassword
+            });
+            if (authError) throw new Error('Senha incorreta!');
+
+            const { terminal, partner } = resetModal;
+            const partnerId = partner.partner_id;
+            const terminalId = terminal.id;
+
+            // 2. Proratear comissões pendentes do mês atual
+            const now = new Date();
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            const assignedAt = partner.assigned_at ? new Date(partner.assigned_at) : monthStart;
+            const effectiveStart = assignedAt > monthStart ? assignedAt : monthStart;
+            const daysActive = Math.max(1, Math.ceil((now - effectiveStart) / (1000 * 60 * 60 * 24)));
+            const prorationFactor = daysActive / daysInMonth;
+
+            // Buscar comissões revenue_share pendentes deste mês
+            const monthISO = monthStart.toISOString().split('T')[0];
+            const { data: pendingComms } = await supabase
+                .from('partner_commissions')
+                .select('id, commission')
+                .eq('partner_id', partnerId)
+                .eq('type', 'revenue_share')
+                .eq('status', 'pending')
+                .gte('period_start', monthISO);
+
+            // Proratear cada comissão
+            let proratedCount = 0;
+            for (const comm of (pendingComms || [])) {
+                const proratedValue = Number(comm.commission) * prorationFactor;
+                await supabase
+                    .from('partner_commissions')
+                    .update({
+                        commission: proratedValue,
+                        status: 'approved',
+                        notes: `Prorateado: ${daysActive}/${daysInMonth} dias (reset terminal)`
+                    })
+                    .eq('id', comm.id);
+                proratedCount++;
+            }
+
+            // 3. Desvincular parceiro do terminal
+            await supabase
+                .from('partner_codes')
+                .update({ terminal_id: null, assigned_at: null })
+                .eq('partner_id', partnerId)
+                .eq('terminal_id', terminalId);
+
+            // 4. Atualizar estado local
+            setLinkedPartners(prev => {
+                const updated = { ...prev };
+                delete updated[terminalId];
+                return updated;
+            });
+
+            const partnerName = partner.users?.display_name || partner.users?.name || 'Parceiro';
+            alert(
+                `✅ Reset financeiro concluído!\n\n` +
+                `Parceiro: ${partnerName}\n` +
+                `Terminal: ${terminal.name}\n` +
+                `Comissões prorateadas: ${proratedCount} (${daysActive}/${daysInMonth} dias = ${(prorationFactor * 100).toFixed(0)}%)\n\n` +
+                `O parceiro foi desvinculado do terminal.`
+            );
+
+            setResetModal(null);
+            setResetAdminPassword('');
+        } catch (err) {
+            console.error('[RESET] Erro:', err);
+            alert(`Erro no reset: ${err.message}`);
+        } finally {
+            setResetProcessing(false);
         }
     };
 
@@ -1126,6 +1363,17 @@ const Players = () => {
                 currentTerminalGroups={[...new Set(terminals.map(t => t.group))]}
             />
 
+            {showPartnerSelector && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <PartnerSelector
+                        onSelect={handleAssignPartner}
+                        onCancel={() => { setShowPartnerSelector(false); setSelectedTerminalForPartner(null); }}
+                        currentPartnerId={selectedTerminalForPartner ? linkedPartners[selectedTerminalForPartner.id]?.partner_id : null}
+                        currentPartnerName={selectedTerminalForPartner ? linkedPartners[selectedTerminalForPartner.id]?.users?.display_name : null}
+                    />
+                </div>
+            )}
+
             <div className="space-y-12">
                 {allGroups
                     .filter(g => filterGroup === 'Todos' || g === filterGroup)
@@ -1156,6 +1404,12 @@ const Players = () => {
                                             onAssignPlaylist={handleAssignPlaylist}
                                             onUpdateField={handleUpdateField}
                                             onDelete={handleDeleteTerminal}
+                                            linkedPartner={linkedPartners[t.id]}
+                                            onOpenPartnerSelector={(term) => {
+                                                setSelectedTerminalForPartner(term);
+                                                setShowPartnerSelector(true);
+                                            }}
+                                            onResetTerminal={handleOpenResetModal}
                                         />
                                     ))}
                                 </div>
@@ -1168,6 +1422,68 @@ const Players = () => {
             {terminals.length === 0 && !isAdding && (
                 <div className="p-12 text-center text-slate-400 bg-white rounded-xl border border-dashed border-slate-300">
                     Nenhum player cadastrado. Conecte sua primeira TV Box para começar o monitoramento.
+                </div>
+            )}
+
+            {/* ── Modal de Reset Financeiro ── */}
+            {resetModal && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[70] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="bg-gradient-to-r from-red-600 to-red-700 p-6 text-white">
+                            <h3 className="text-xl font-black Outfit uppercase tracking-tight">Reset Financeiro</h3>
+                            <p className="text-red-100 text-xs mt-1 font-bold italic">Terminal: {resetModal.terminal.name}</p>
+                        </div>
+                        <div className="p-8 space-y-6">
+                            {/* Info */}
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
+                                <p className="text-xs font-bold text-amber-800">
+                                    ⚠️ Esta ação irá:
+                                </p>
+                                <ul className="text-xs text-amber-700 space-y-1 pl-4 list-disc">
+                                    <li>Proratear as comissões pendentes do parceiro <strong>{resetModal.partner.users?.display_name || 'N/A'}</strong> (proporcional aos dias ativos neste mês)</li>
+                                    <li>Desvincular o parceiro deste terminal</li>
+                                    <li>O terminal ficará disponível para vincular a um novo parceiro</li>
+                                </ul>
+                                {resetModal.partner.assigned_at && (
+                                    <p className="text-[10px] text-amber-600 mt-2">
+                                        Vinculado desde: {new Date(resetModal.partner.assigned_at).toLocaleDateString('pt-BR')}
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* Senha Admin */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">
+                                    Senha do Admin (confirmação)
+                                </label>
+                                <input
+                                    type="password"
+                                    value={resetAdminPassword}
+                                    onChange={e => setResetAdminPassword(e.target.value)}
+                                    placeholder="Digite sua senha de admin..."
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 focus:ring-4 focus:ring-red-500/10 focus:border-red-500/50 outline-none transition-all"
+                                    autoFocus
+                                />
+                            </div>
+
+                            {/* Botões */}
+                            <div className="flex gap-4">
+                                <button
+                                    onClick={() => { setResetModal(null); setResetAdminPassword(''); }}
+                                    className="flex-1 px-4 py-3 rounded-xl text-xs font-black text-slate-400 hover:bg-slate-50 transition-all Outfit uppercase tracking-widest"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    disabled={!resetAdminPassword || resetProcessing}
+                                    onClick={handleConfirmReset}
+                                    className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-6 py-3 rounded-xl text-xs font-black shadow-lg shadow-red-600/20 transition-all transform active:scale-95 Outfit uppercase tracking-widest"
+                                >
+                                    {resetProcessing ? 'Processando...' : 'Confirmar Reset'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

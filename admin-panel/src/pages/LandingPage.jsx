@@ -113,6 +113,10 @@ function TotemSVG({ className = '', variant = 1 }) {
 // ══════════════════════════════════════════════════════════
 // LANDING PAGE — DARK THEME
 // ══════════════════════════════════════════════════════════
+const WHATSAPP_NUMBER = '5521990469735';
+const WHATSAPP_PARTNER_URL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent('Olá! Quero me tornar parceiro da Rede Conecta!')}`;
+const WHATSAPP_GENERIC_URL = `https://wa.me/${WHATSAPP_NUMBER}`;
+
 export default function LandingPage() {
     const navigate = useNavigate();
     const [activeFaq, setActiveFaq] = useState(null);
@@ -618,13 +622,15 @@ export default function LandingPage() {
                         Instalamos um totem no seu espaço sem custo. Você ganha comissão por cada anunciante.
                         Sujeito à disponibilidade de equipamento e análise do local.
                     </p>
-                    <button
-                        onClick={() => navigate('/login?modo=cadastro&tipo=parceiro')}
+                    <a
+                        href={WHATSAPP_PARTNER_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="text-blue-400 hover:text-blue-300 font-bold text-sm transition-colors inline-flex items-center space-x-1"
                     >
                         <span>Solicitar análise do meu estabelecimento</span>
                         <ArrowRight className="w-4 h-4" />
-                    </button>
+                    </a>
                 </div>
             </section>
 
@@ -648,6 +654,22 @@ export default function LandingPage() {
                     </div>
                 </div>
             </footer>
+
+            {/* ═══ FLOATING WHATSAPP BUTTON ═══ */}
+            <a
+                href={WHATSAPP_GENERIC_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Fale conosco pelo WhatsApp"
+                className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-[#25D366] rounded-full flex items-center justify-center shadow-lg shadow-[#25D366]/30 hover:scale-110 active:scale-95 transition-all group"
+            >
+                {/* WhatsApp SVG Icon */}
+                <svg viewBox="0 0 32 32" className="w-7 h-7 fill-white">
+                    <path d="M16.004 3.2C9.002 3.2 3.306 8.896 3.306 15.898c0 2.236.584 4.42 1.694 6.346L3.2 28.8l6.748-1.77a12.614 12.614 0 006.056 1.542h.005c7 0 12.697-5.696 12.697-12.698 0-3.394-1.32-6.584-3.72-8.984A12.624 12.624 0 0016.004 3.2zm0 23.182a10.4 10.4 0 01-5.314-1.454l-.38-.228-3.946 1.034 1.054-3.848-.248-.396A10.476 10.476 0 015.52 15.898c0-5.782 4.704-10.486 10.488-10.486 2.8 0 5.432 1.092 7.412 3.072a10.414 10.414 0 013.07 7.416c-.002 5.784-4.706 10.482-10.486 10.482zm5.75-7.852c-.314-.158-1.862-.92-2.15-1.024-.29-.106-.5-.158-.712.158-.21.316-.816 1.024-1.002 1.234-.184.212-.368.238-.682.08-.316-.158-1.332-.49-2.538-1.566-.938-.836-1.572-1.87-1.756-2.184-.184-.316-.02-.486.138-.644.142-.142.316-.368.474-.554.158-.184.21-.316.316-.528.106-.21.052-.396-.028-.554-.08-.158-.712-1.714-.976-2.348-.256-.616-.518-.532-.712-.542-.184-.008-.396-.01-.608-.01s-.554.08-.844.396c-.29.316-1.108 1.082-1.108 2.64 0 1.556 1.134 3.06 1.292 3.27.158.212 2.234 3.412 5.412 4.788.756.326 1.346.52 1.806.666.76.242 1.45.208 1.996.126.61-.092 1.862-.762 2.124-1.498.264-.736.264-1.366.184-1.498-.078-.132-.29-.21-.606-.368z" />
+                </svg>
+                {/* Pulse ring */}
+                <span className="absolute inset-0 rounded-full bg-[#25D366] animate-ping opacity-20" />
+            </a>
         </div>
     );
 }

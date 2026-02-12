@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
 import { supabase, signIn, signUp, signOut, onAuthStateChange, getUserProfile, getCurrentUser } from '../supabase';
+import { PLANS } from '../utils/planHelpers';
 
 const AuthContext = createContext();
 
@@ -98,7 +99,8 @@ export function AuthProvider({ children }) {
                         id: data.id,
                         ...data,
                         displayName: data.display_name || data.name || data.email?.split('@')[0] || 'Usuário',
-                        plan: data.plan || 'start'
+                        plan: data.plan || 'start',
+                        planExpiresAt: data.plan_expires_at || null
                     };
                     const oldDataStr = JSON.stringify(userDataRef.current);
                     const newDataStr = JSON.stringify(newData);
@@ -106,6 +108,31 @@ export function AuthProvider({ children }) {
                     if (oldDataStr !== newDataStr) {
                         userDataRef.current = newData;
                         setUserData(newData);
+                    }
+
+                    // Auto-populate plan_expires_at if NULL
+                    if (!data.plan_expires_at && data.plan && data.role !== 'admin' && data.role !== 'parceiro') {
+                        const validityDays = PLANS[data.plan]?.validityDays || 30;
+                        const expiresAt = new Date();
+                        expiresAt.setDate(expiresAt.getDate() + validityDays);
+                        const expiresIso = expiresAt.toISOString();
+
+                        console.log(`[Auth] Auto-setting plan_expires_at for user ${data.id}: ${data.plan} → ${validityDays} days`);
+
+                        supabase
+                            .from('users')
+                            .update({ plan_expires_at: expiresIso })
+                            .eq('id', data.id)
+                            .then(({ error: upErr }) => {
+                                if (upErr) {
+                                    console.error('[Auth] Failed to auto-set plan_expires_at:', upErr);
+                                } else {
+                                    // Update local state with new expiration
+                                    const updated = { ...newData, planExpiresAt: expiresIso, plan_expires_at: expiresIso };
+                                    userDataRef.current = updated;
+                                    setUserData(updated);
+                                }
+                            });
                     }
                 } else if (error?.code === 'PGRST116') {
                     // Perfil não encontrado - criar automaticamente

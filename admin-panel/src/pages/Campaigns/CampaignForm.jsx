@@ -44,6 +44,7 @@ const CampaignForm = ({
     resetForm,
 }) => {
     const { currentUser, userData } = useAuth();
+    const isAdmin = userData?.role === 'admin';
 
     // ── Estado do Cupom de Indicação ────────────────────
     const [couponCode, setCouponCode] = useState('');
@@ -106,7 +107,7 @@ const CampaignForm = ({
         const userCredits = userData?.tokens || 0;
 
         if (!editingCamp) {
-            if (userCredits < campaignCost) {
+            if (!isAdmin && userCredits < campaignCost) {
                 return alert(`❌ Créditos insuficientes!\n\nVocê tem: ${userCredits} créditos\nCusto da campanha: ${campaignCost} créditos (${slotsCount} slot${slotsCount > 1 ? 's' : ''})\n\nAcesse Créditos & Finanças para recarregar.`);
             }
 
@@ -140,7 +141,7 @@ const CampaignForm = ({
                 const isApproved = editingCamp.moderation_status === 'approved';
 
                 if (isApproved) {
-                    if (userCredits < EDIT_FEE) {
+                    if (!isAdmin && userCredits < EDIT_FEE) {
                         return alert(`❌ Créditos insuficientes para alteração!\n\nVocê tem: ${userCredits} créditos\nTaxa de alteração: ${EDIT_FEE} créditos\n\nAcesse Créditos & Finanças para recarregar.`);
                     }
 
@@ -213,13 +214,15 @@ const CampaignForm = ({
 
                 if (campError) throw campError;
 
-                const newBalance = userCredits - campaignCost;
-                const { error: debitError } = await supabase
-                    .from('users')
-                    .update({ tokens: newBalance })
-                    .eq('id', currentUser.id);
+                const newBalance = isAdmin ? userCredits : userCredits - campaignCost;
+                if (!isAdmin) {
+                    const { error: debitError } = await supabase
+                        .from('users')
+                        .update({ tokens: newBalance })
+                        .eq('id', currentUser.id);
 
-                if (debitError) throw debitError;
+                    if (debitError) throw debitError;
+                }
 
                 await supabase
                     .from('credit_transactions')
@@ -261,7 +264,7 @@ const CampaignForm = ({
         const validation = canCreateCampaign(userData, campaigns, screensQuota);
         if (!validation.can) return alert(validation.reason);
 
-        if (userData?.tokens < AI_CREATION_COST) return alert(`Saldo Insuficiente! Você precisa de ${AI_CREATION_COST} tokens.`);
+        if (!isAdmin && userData?.tokens < AI_CREATION_COST) return alert(`Saldo Insuficiente! Você precisa de ${AI_CREATION_COST} tokens.`);
 
         setIsSubmittingAI(true);
         try {
