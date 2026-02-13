@@ -247,8 +247,6 @@ function App() {
       )
       .subscribe();
 
-      .subscribe();
-
     // Polling backup (cada 5 minutos) para garantir consistência se o Realtime falhar
     const pollInterval = setInterval(() => {
       console.log('[POLLING] Refetching playlist for consistency...');

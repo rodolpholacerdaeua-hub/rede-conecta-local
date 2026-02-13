@@ -162,14 +162,14 @@ export default function LandingPage() {
 
     const depoimentos = [
         {
-            name: 'Marcelo F.',
-            role: 'Pizzaria Bella Massa — SP',
-            text: 'Coloquei um anúncio na barbearia em frente. Os clientes vêm aqui e falam: "vi na tela". Resultado real.',
+            name: 'Moisés M.',
+            role: 'Carne de Sol do Guelito — Duque de Caxias, RJ',
+            text: 'Coloquei a tela no meu restaurante e já recebo comissão todo mês. Percebo que os clientes prestam atenção nos anúncios enquanto esperam. Renda extra sem fazer nada.',
             stars: 5
         },
         {
-            name: 'Dra. Renata S.',
-            role: 'Clínica Odontológica — MG',
+            name: 'Dra. Meire L.',
+            role: 'Clínica Odontológica — Duque de Caxias, RJ',
             text: 'Investi R$69 numa semana teste. Recebi 3 agendamentos de pacientes novos do bairro. Vale cada centavo.',
             stars: 5
         },
@@ -466,13 +466,13 @@ export default function LandingPage() {
                     <div className="grid md:grid-cols-3 gap-6">
                         {depoimentos.map((d, i) => (
                             <Section key={i} delay={i * 100}>
-                                <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5">
+                                <div className="bg-slate-900/50 rounded-2xl p-6 border border-white/5 h-full flex flex-col">
                                     <div className="flex space-x-1 mb-3">
                                         {Array.from({ length: d.stars }).map((_, j) => (
                                             <Star key={j} className="w-4 h-4 text-amber-400 fill-amber-400" />
                                         ))}
                                     </div>
-                                    <p className="text-slate-300 text-sm leading-relaxed mb-4">"{d.text}"</p>
+                                    <p className="text-slate-300 text-sm leading-relaxed mb-4 flex-1">"{d.text}"</p>
                                     <div className="flex items-center space-x-3">
                                         <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
                                             {d.name.charAt(0)}
