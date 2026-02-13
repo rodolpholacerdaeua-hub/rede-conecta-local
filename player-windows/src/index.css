@@ -27,6 +27,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: none !important;
+  /* Esconder cursor mouse */
 }
 
 /* Base Layout */
