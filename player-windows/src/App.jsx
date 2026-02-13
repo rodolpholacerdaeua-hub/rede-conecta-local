@@ -247,10 +247,19 @@ function App() {
       )
       .subscribe();
 
+      .subscribe();
+
+    // Polling backup (cada 5 minutos) para garantir consistência se o Realtime falhar
+    const pollInterval = setInterval(() => {
+      console.log('[POLLING] Refetching playlist for consistency...');
+      fetchPlaylist();
+    }, 5 * 60 * 1000);
+
     return () => {
       if (slotsDebounceTimer) clearTimeout(slotsDebounceTimer);
       supabase.removeChannel(slotsChannel);
       supabase.removeChannel(playlistChannel);
+      clearInterval(pollInterval);
     };
   }, [terminalData?.assigned_playlist_id, authReady, terminalId]);
 
