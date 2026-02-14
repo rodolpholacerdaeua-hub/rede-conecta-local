@@ -896,99 +896,101 @@ const Players = () => {
         if (!selectedTerminalForPartner) return;
 
         try {
-            // 1. Gerar Código: {PRIMEIRO_NOME}{DESCONTO%} — ex: CLAUDIA5
-            // 1. Gerar Código Único
             const firstName = (partnerUser.display_name || partnerUser.name || 'PARCEIRO').split(' ')[0].toUpperCase().replace(/[^A-Z0-9]/g, '');
-            let code = `${firstName}5`;
-            let isUnique = false;
+            let baseCode = `${firstName}5`; // Código base inicial
+            let code = baseCode;
+
+            let success = false;
             let attempts = 0;
+            const maxAttempts = 5;
 
-            // Loop para garantir unicidade do código
-            while (!isUnique && attempts < 5) {
-                // Verificar se já existe (exceto para este terminal, se for update)
-                const { data: conflict } = await supabase
-                    .from('partner_codes')
-                    .select('id')
-                    .eq('code', code)
-                    .neq('terminal_id', selectedTerminalForPartner.id) // Ignorar colisão com o próprio terminal
-                    .maybeSingle();
+            while (!success && attempts < maxAttempts) {
+                try {
+                    // Verificar se já existe registro para (terminal_id) para decidir entre insert/update
+                    // Esta leitura inicial não precisa de proteção contra colisão de código, pois busca por terminal_id
+                    const { data: existing } = await supabase
+                        .from('partner_codes')
+                        .select('id')
+                        .eq('terminal_id', selectedTerminalForPartner.id)
+                        .maybeSingle();
 
-                if (!conflict) {
-                    isUnique = true;
-                } else {
-                    // Colisão: adicionar sufixo aleatório antes do 5
-                    // Ex: CLAUDIA5 -> CLAUDIAXYZ5
-                    const randomSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
-                    code = `${firstName}${randomSuffix}5`;
-                    attempts++;
+                    let resultData;
+
+                    if (existing) {
+                        // Atualizar existente
+                        const { data, error } = await supabase
+                            .from('partner_codes')
+                            .update({
+                                partner_id: partnerUser.id,
+                                code: code,
+                                discount_pct: 5,
+                                referral_pct: 15,
+                                revenue_share_pct: 20,
+                                assigned_at: new Date().toISOString()
+                            })
+                            .eq('id', existing.id)
+                            .select('terminal_id, code, users(display_name, email)')
+                            .single();
+
+                        if (error) throw error;
+                        resultData = data;
+                    } else {
+                        // Inserir novo
+                        const { data, error } = await supabase
+                            .from('partner_codes')
+                            .insert({
+                                partner_id: partnerUser.id,
+                                terminal_id: selectedTerminalForPartner.id,
+                                code: code,
+                                discount_pct: 5,
+                                referral_pct: 15,
+                                revenue_share_pct: 20,
+                                assigned_at: new Date().toISOString()
+                            })
+                            .select('terminal_id, code, users(display_name, email)')
+                            .single();
+
+                        if (error) throw error;
+                        resultData = data;
+                    }
+
+                    // Se chegou aqui, sucesso!
+                    success = true;
+
+                    // Atualizar estado local
+                    setLinkedPartners(prev => ({
+                        ...prev,
+                        [selectedTerminalForPartner.id]: {
+                            ...resultData,
+                            users: resultData.users || { display_name: partnerUser.display_name, email: partnerUser.email }
+                        }
+                    }));
+
+                    alert(`✅ Parceiro vinculado com sucesso!\n\nParceiro: ${partnerUser.display_name}\nCódigo Gerado: ${code}`);
+                    setShowPartnerSelector(false);
+                    setSelectedTerminalForPartner(null);
+
+                } catch (currentError) {
+                    // Capturar erro de chave duplicada (Postgres: 23505)
+                    const isDuplicate = currentError.message?.includes('duplicate key') ||
+                        currentError.message?.includes('partner_codes_code_key') ||
+                        currentError.code === '23505';
+
+                    if (isDuplicate) {
+                        console.warn(`[Colisão] Código ${code} já existe. Tentando novo...`);
+                        attempts++;
+                        if (attempts >= maxAttempts) {
+                            throw new Error(`Não foi possível gerar um código único após ${maxAttempts} tentativas.`);
+                        }
+                        // Gerar novo código com sufixo
+                        const randomSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
+                        code = `${firstName}${randomSuffix}5`;
+                    } else {
+                        // Outro erro: repassar
+                        throw currentError;
+                    }
                 }
             }
-
-            if (!isUnique) {
-                code = `${firstName}${Date.now().toString().slice(-4)}5`; // Fallback final
-            }
-
-            // 2. Inserir/Atualizar no Supabase
-            // Verificação manual para garantir integridade caso não haja constraint UNIQUE
-            const { data: existing } = await supabase
-                .from('partner_codes')
-                .select('id')
-                .eq('terminal_id', selectedTerminalForPartner.id)
-                .maybeSingle();
-
-            let resultData;
-
-            if (existing) {
-                // Atualizar existente
-                const { data, error } = await supabase
-                    .from('partner_codes')
-                    .update({
-                        partner_id: partnerUser.id,
-                        code: code,
-                        discount_pct: 5,
-                        referral_pct: 15,
-                        revenue_share_pct: 20,
-                        assigned_at: new Date().toISOString()
-                    })
-                    .eq('id', existing.id)
-                    .select('terminal_id, code, users(display_name, email)')
-                    .single();
-
-                if (error) throw error;
-                resultData = data;
-            } else {
-                // Inserir novo
-                const { data, error } = await supabase
-                    .from('partner_codes')
-                    .insert({
-                        partner_id: partnerUser.id,
-                        terminal_id: selectedTerminalForPartner.id,
-                        code: code,
-                        discount_pct: 5,
-                        referral_pct: 15,
-                        revenue_share_pct: 20,
-                        assigned_at: new Date().toISOString()
-                    })
-                    .select('terminal_id, code, users(display_name, email)')
-                    .single();
-
-                if (error) throw error;
-                resultData = data;
-            }
-
-            // 3. Atualizar estado local
-            setLinkedPartners(prev => ({
-                ...prev,
-                [selectedTerminalForPartner.id]: {
-                    ...resultData,
-                    // O join retorna users como objeto, precisamos garantir estrutura
-                    users: resultData.users || { display_name: partnerUser.display_name, email: partnerUser.email }
-                }
-            }));
-
-            alert(`✅ Parceiro vinculado com sucesso!\n\nParceiro: ${partnerUser.display_name}\nCódigo Gerado: ${code}`);
-            setShowPartnerSelector(false);
-            setSelectedTerminalForPartner(null);
 
         } catch (e) {
             console.error('Erro ao vincular parceiro:', e);
