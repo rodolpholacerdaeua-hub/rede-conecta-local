@@ -114,22 +114,21 @@ const PartnerAdPage = () => {
 
             if (mediaError) throw mediaError;
 
-            // Atualizar o slot do parceiro com a nova mídia
+            // Atualizar o slot do parceiro com a nova mídia (via RPC seguro)
             setUploadProgress('Vinculando ao seu slot...');
 
-            if (!partnerSlot?.id) {
-                throw new Error('Slot do parceiro não encontrado. Contate o administrador.');
+            const { data: rpcData, error: rpcError } = await supabase
+                .rpc('manage_partner_slot', {
+                    p_playlist_id: playlistId,
+                    p_media_id: newMedia.id,
+                    p_duration: Math.round(duration)
+                });
+
+            if (rpcError) throw rpcError;
+
+            if (!rpcData.success) {
+                throw new Error(rpcData.error || 'Erro desconhecido ao atualizar slot');
             }
-
-            const { error: slotError } = await supabase
-                .from('playlist_slots')
-                .update({
-                    media_id: newMedia.id,
-                    duration: Math.round(duration)
-                })
-                .eq('id', partnerSlot.id);
-
-            if (slotError) throw slotError;
 
             // Remover mídia antiga do storage (se existia)
             if (currentMedia?.storage_path) {
@@ -156,13 +155,19 @@ const PartnerAdPage = () => {
             setUploading(true);
             setUploadProgress('Removendo anúncio...');
 
-            // Limpar slot
-            const { error: slotError } = await supabase
-                .from('playlist_slots')
-                .update({ media_id: null })
-                .eq('id', partnerSlot.id);
+            // Limpar slot via RPC seguro
+            const { data: rpcData, error: rpcError } = await supabase
+                .rpc('manage_partner_slot', {
+                    p_playlist_id: playlistId,
+                    p_media_id: null,
+                    p_duration: 16 // Manter duração padrão ao limpar
+                });
 
-            if (slotError) throw slotError;
+            if (rpcError) throw rpcError;
+
+            if (!rpcData.success) {
+                throw new Error(rpcData.error || 'Erro desconhecido ao remover anúncio');
+            }
 
             // Remover do storage
             if (currentMedia?.storage_path) {
@@ -205,7 +210,9 @@ const PartnerAdPage = () => {
         <div className="max-w-2xl mx-auto space-y-8 animate-fade-in">
             {/* Header */}
             <div>
-                <h1 className="text-3xl font-black text-slate-800 tracking-tight">Meu Anúncio</h1>
+                <h1 className="text-3xl font-black text-slate-800 tracking-tight">
+                    Meu Anúncio <span className="text-xs bg-indigo-100 text-indigo-600 px-2 py-1 rounded-full align-middle">v2.1</span>
+                </h1>
                 <p className="text-slate-500 mt-1">
                     Gerencie o anúncio que exibe na sua tela <span className="font-bold text-slate-700">{terminal.name}</span>
                 </p>
