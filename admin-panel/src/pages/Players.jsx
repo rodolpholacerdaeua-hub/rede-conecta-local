@@ -897,8 +897,36 @@ const Players = () => {
 
         try {
             // 1. Gerar Código: {PRIMEIRO_NOME}{DESCONTO%} — ex: CLAUDIA5
+            // 1. Gerar Código Único
             const firstName = (partnerUser.display_name || partnerUser.name || 'PARCEIRO').split(' ')[0].toUpperCase().replace(/[^A-Z0-9]/g, '');
-            const code = `${firstName}5`;
+            let code = `${firstName}5`;
+            let isUnique = false;
+            let attempts = 0;
+
+            // Loop para garantir unicidade do código
+            while (!isUnique && attempts < 5) {
+                // Verificar se já existe (exceto para este terminal, se for update)
+                const { data: conflict } = await supabase
+                    .from('partner_codes')
+                    .select('id')
+                    .eq('code', code)
+                    .neq('terminal_id', selectedTerminalForPartner.id) // Ignorar colisão com o próprio terminal
+                    .maybeSingle();
+
+                if (!conflict) {
+                    isUnique = true;
+                } else {
+                    // Colisão: adicionar sufixo aleatório antes do 5
+                    // Ex: CLAUDIA5 -> CLAUDIAXYZ5
+                    const randomSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
+                    code = `${firstName}${randomSuffix}5`;
+                    attempts++;
+                }
+            }
+
+            if (!isUnique) {
+                code = `${firstName}${Date.now().toString().slice(-4)}5`; // Fallback final
+            }
 
             // 2. Inserir/Atualizar no Supabase
             // Verificação manual para garantir integridade caso não haja constraint UNIQUE
